@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HelixMemory -- Unified Cognitive Memory Engine</title>
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-deep: #08080f;
+  --bg-surface: #0d0d1a;
+  --bg-card: rgba(16, 16, 32, 0.65);
+  --border-subtle: rgba(120, 90, 220, 0.15);
+  --border-glow: rgba(100, 200, 240, 0.25);
+  --text-primary: #e8e8f0;
+  --text-secondary: #9898b8;
+  --text-muted: #6868a0;
+  --gradient-start: #7c3aed;
+  --gradient-mid: #4f46e5;
+  --gradient-end: #06b6d4;
+  --gradient-teal: #14b8a6;
+  --accent-purple: #a78bfa;
+  --accent-cyan: #22d3ee;
+  --accent-blue: #60a5fa;
+  --glass-bg: rgba(16, 16, 40, 0.45);
+  --glass-border: rgba(120, 120, 200, 0.12);
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--gradient-start), var(--gradient-end));
+  border-radius: 3px;
+}
+
+/* ===== TYPOGRAPHY ===== */
+h1, h2, h3, h4 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent-purple), var(--gradient-mid), var(--accent-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ===== CONTAINER ===== */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ===== SECTION BASE ===== */
+section {
+  position: relative;
+  padding: 120px 0;
+}
+
+.section-label {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--accent-cyan);
+  margin-bottom: 16px;
+  padding: 6px 16px;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  border-radius: 100px;
+  background: rgba(6, 182, 212, 0.06);
+}
+
+.section-title {
+  font-size: clamp(2rem, 5vw, 3rem);
+  margin-bottom: 16px;
+}
+
+.section-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  max-width: 600px;
+}
+
+/* ===== NAVIGATION ===== */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 1000;
+  padding: 16px 0;
+  transition: background 0.3s, backdrop-filter 0.3s, box-shadow 0.3s;
+}
+
+nav.scrolled {
+  background: rgba(8, 8, 15, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 1px 0 var(--glass-border);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.nav-logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nav-links {
+  display: flex;
+  gap: 32px;
+  list-style: none;
+}
+
+.nav-links a {
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.nav-links a:hover {
+  color: var(--text-primary);
+}
+
+.nav-mobile-toggle {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+}
+
+.nav-mobile-toggle span {
+  display: block;
+  width: 24px;
+  height: 2px;
+  background: var(--text-primary);
+  margin: 5px 0;
+  transition: transform 0.3s, opacity 0.3s;
+}
+
+/* ===== HERO SECTION ===== */
+#hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding-top: 80px;
+}
+
+#hero-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.hero-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 40%;
+  background: linear-gradient(to top, var(--bg-deep), transparent);
+  z-index: 1;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  max-width: 800px;
+  padding: 0 24px;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent-cyan);
+  padding: 8px 20px;
+  border-radius: 100px;
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  background: rgba(6, 182, 212, 0.05);
+  margin-bottom: 32px;
+  backdrop-filter: blur(10px);
+}
+
+.hero-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34, 211, 238, 0); }
+}
+
+.hero-title {
+  font-size: clamp(3rem, 8vw, 5.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  margin-bottom: 12px;
+  letter-spacing: -0.04em;
+}
+
+.hero-tagline {
+  font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+  color: var(--text-secondary);
+  font-weight: 400;
+  margin-bottom: 8px;
+}
+
+.hero-subtitle {
+  font-size: clamp(0.9rem, 1.5vw, 1.05rem);
+  color: var(--text-muted);
+  max-width: 560px;
+  margin: 0 auto 40px;
+  line-height: 1.6;
+}
+
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 32px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+  border: none;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 24px rgba(124, 58, 237, 0.3);
+}
+
+.hero-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.45);
+}
+
+.hero-cta svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.2s;
+}
+
+.hero-cta:hover svg {
+  transform: translateX(3px);
+}
+
+/* ===== ARCHITECTURE SECTION ===== */
+#architecture {
+  background: var(--bg-surface);
+}
+
+.arch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: center;
+  margin-top: 60px;
+}
+
+.arch-diagram {
+  position: relative;
+  padding: 40px;
+}
+
+.arch-diagram-inner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.arch-node {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  transition: transform 0.3s, box-shadow 0.3s;
+  cursor: default;
+  z-index: 2;
+}
+
+.arch-node:hover {
+  transform: scale(1.08);
+}
+
+.arch-node-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arch-node-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.arch-node--mem0 {
+  top: 0;
+  left: 10%;
+  background: rgba(167, 139, 250, 0.1);
+  border-color: rgba(167, 139, 250, 0.25);
+}
+
+.arch-node--mem0 .arch-node-icon { background: rgba(167, 139, 250, 0.2); }
+
+.arch-node--cognee {
+  top: 0;
+  right: 10%;
+  background: rgba(96, 165, 250, 0.1);
+  border-color: rgba(96, 165, 250, 0.25);
+}
+
+.arch-node--cognee .arch-node-icon { background: rgba(96, 165, 250, 0.2); }
+
+.arch-node--letta {
+  bottom: 32%;
+  left: 0;
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.25);
+}
+
+.arch-node--letta .arch-node-icon { background: rgba(52, 211, 153, 0.2); }
+
+.arch-node--graphiti {
+  bottom: 32%;
+  right: 0;
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.25);
+}
+
+.arch-node--graphiti .arch-node-icon { background: rgba(251, 191, 36, 0.2); }
+
+.arch-fusion {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 180px;
+  height: 80px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(6, 182, 212, 0.15));
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  z-index: 2;
+  backdrop-filter: blur(12px);
+}
+
+.arch-fusion .gradient-text {
+  font-size: 0.85rem;
+}
+
+#arch-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.arch-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.arch-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: 16px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  transition: border-color 0.3s, background 0.3s;
+}
+
+.arch-card:hover {
+  border-color: var(--border-glow);
+  background: rgba(16, 16, 40, 0.6);
+}
+
+.arch-card-icon {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arch-card-icon--mem0 { background: rgba(167, 139, 250, 0.15); }
+.arch-card-icon--cognee { background: rgba(96, 165, 250, 0.15); }
+.arch-card-icon--letta { background: rgba(52, 211, 153, 0.15); }
+.arch-card-icon--graphiti { background: rgba(251, 191, 36, 0.15); }
+
+.arch-card-content h4 {
+  font-size: 1rem;
+  margin-bottom: 2px;
+}
+
+.arch-card-content p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.arch-card-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.arch-card-tag {
+  font-size: 0.65rem;
+  padding: 2px 10px;
+  border-radius: 100px;
+  background: rgba(100, 100, 200, 0.08);
+  border: 1px solid rgba(100, 100, 200, 0.12);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Stats row */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-top: 60px;
+}
+
+.stat-card {
+  text-align: center;
+  padding: 28px 16px;
+  border-radius: 16px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  transition: border-color 0.3s, transform 0.3s;
+}
+
+.stat-card:hover {
+  border-color: var(--border-glow);
+  transform: translateY(-4px);
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ===== FUSION PIPELINE SECTION ===== */
+#fusion {
+  overflow: hidden;
+}
+
+.fusion-pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 60px;
+  position: relative;
+}
+
+.fusion-stage {
+  flex: 1;
+  padding: 32px 28px;
+  border-radius: 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  position: relative;
+  z-index: 2;
+  transition: border-color 0.3s, transform 0.3s;
+}
+
+.fusion-stage:hover {
+  border-color: var(--border-glow);
+  transform: translateY(-4px);
+}
+
+.fusion-stage-number {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-cyan);
+  margin-bottom: 12px;
+}
+
+.fusion-stage h3 {
+  font-size: 1.15rem;
+  margin-bottom: 8px;
+}
+
+.fusion-stage p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.fusion-connector {
+  flex-shrink: 0;
+  width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.fusion-connector svg {
+  width: 32px;
+  height: 32px;
+  color: var(--accent-cyan);
+  opacity: 0.5;
+}
+
+.fusion-formula {
+  margin-top: 48px;
+  padding: 32px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.06), rgba(6, 182, 212, 0.06));
+  border: 1px solid rgba(124, 58, 237, 0.15);
+  text-align: center;
+}
+
+.fusion-formula-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-purple);
+  margin-bottom: 16px;
+}
+
+.fusion-formula-expr {
+  font-family: var(--font-mono);
+  font-size: clamp(0.8rem, 2vw, 1.15rem);
+  color: var(--text-primary);
+  line-height: 2;
+}
+
+.fusion-formula-expr .ff-keyword {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.fusion-formula-expr .ff-op {
+  color: var(--text-muted);
+}
+
+.fusion-formula-expr .ff-num {
+  color: var(--accent-purple);
+  font-weight: 600;
+}
+
+.fusion-threshold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.fusion-threshold-bar {
+  width: 200px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(100, 100, 200, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.fusion-threshold-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 92%;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+  animation: threshold-shimmer 3s infinite;
+}
+
+@keyframes threshold-shimmer {
+  0% { opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { opacity: 0.7; }
+}
+
+.fusion-threshold-text {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.fusion-threshold-value {
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+/* ===== FEATURES SECTION ===== */
+#features {
+  background: var(--bg-surface);
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  margin-top: 60px;
+}
+
+.feature-card {
+  padding: 28px;
+  border-radius: 18px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  transition: border-color 0.4s, transform 0.3s, box-shadow 0.4s;
+  cursor: default;
+}
+
+.feature-card:hover {
+  border-color: var(--border-glow);
+  transform: translateY(-6px);
+  box-shadow: 0 12px 40px rgba(6, 182, 212, 0.08);
+}
+
+.feature-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(6, 182, 212, 0.12));
+  border: 1px solid rgba(124, 58, 237, 0.15);
+}
+
+.feature-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.feature-card h4 {
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+
+.feature-card p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ===== PERFORMANCE SECTION ===== */
+#performance {
+  text-align: center;
+}
+
+.perf-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 60px;
+}
+
+.perf-card {
+  padding: 40px 24px;
+  border-radius: 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  transition: border-color 0.3s, transform 0.3s;
+}
+
+.perf-card:hover {
+  border-color: var(--border-glow);
+  transform: translateY(-4px);
+}
+
+.perf-value {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+  line-height: 1;
+}
+
+.perf-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.perf-sublabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ===== GETTING STARTED SECTION ===== */
+#getting-started {
+  background: var(--bg-surface);
+}
+
+.gs-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 48px;
+  margin-bottom: 0;
+  background: rgba(16, 16, 32, 0.5);
+  border-radius: 14px 14px 0 0;
+  padding: 6px 6px 0 6px;
+  border: 1px solid var(--glass-border);
+  border-bottom: none;
+  display: inline-flex;
+}
+
+.gs-tab {
+  padding: 10px 24px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+  font-family: var(--font-sans);
+}
+
+.gs-tab.active {
+  color: var(--text-primary);
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.gs-tab:hover {
+  color: var(--text-primary);
+}
+
+.gs-code-wrapper {
+  position: relative;
+  border-radius: 0 18px 18px 18px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+}
+
+.gs-code-panel {
+  display: none;
+  background: rgba(10, 10, 20, 0.8);
+  backdrop-filter: blur(10px);
+}
+
+.gs-code-panel.active {
+  display: block;
+}
+
+.gs-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.gs-code-title {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.gs-copy-btn {
+  padding: 6px 14px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: rgba(100, 100, 200, 0.08);
+  border: 1px solid rgba(100, 100, 200, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  font-family: var(--font-sans);
+}
+
+.gs-copy-btn:hover {
+  color: var(--accent-cyan);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.gs-code-block {
+  padding: 24px;
+  overflow-x: auto;
+}
+
+.gs-code-block pre {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.8;
+  color: var(--text-primary);
+  white-space: pre;
+  tab-size: 4;
+}
+
+/* Syntax highlighting */
+.hl-kw { color: #c792ea; }
+.hl-fn { color: #82aaff; }
+.hl-str { color: #c3e88d; }
+.hl-cm { color: #546e7a; }
+.hl-num { color: #f78c6c; }
+.hl-type { color: #ffcb6b; }
+.hl-op { color: #89ddff; }
+.hl-var { color: #eeffff; }
+.hl-tag { color: #f07178; }
+
+/* ===== FOOTER ===== */
+footer {
+  padding: 60px 0 40px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.footer-brand h3 {
+  font-size: 1.2rem;
+  margin-bottom: 4px;
+}
+
+.footer-brand p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.footer-links {
+  display: flex;
+  gap: 32px;
+  list-style: none;
+}
+
+.footer-links a {
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  transition: color 0.2s;
+}
+
+.footer-links a:hover {
+  color: var(--text-primary);
+}
+
+.footer-bottom {
+  text-align: center;
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ===== ANIMATIONS ===== */
+.reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+
+/* Counter animation */
+.counter {
+  display: inline-block;
+}
+
+/* ===== FLOATING PARTICLES ===== */
+.floating-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb-1 {
+  width: 400px;
+  height: 400px;
+  background: rgba(124, 58, 237, 0.06);
+  top: -100px;
+  right: -100px;
+  animation: float-orb 20s infinite ease-in-out;
+}
+
+.orb-2 {
+  width: 300px;
+  height: 300px;
+  background: rgba(6, 182, 212, 0.05);
+  bottom: -50px;
+  left: -100px;
+  animation: float-orb 25s infinite ease-in-out reverse;
+}
+
+@keyframes float-orb {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(30px, -40px); }
+  50% { transform: translate(-20px, 20px); }
+  75% { transform: translate(40px, 30px); }
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 1024px) {
+  .arch-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .perf-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  section {
+    padding: 80px 0;
+  }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: rgba(8, 8, 15, 0.95);
+    backdrop-filter: blur(20px);
+    flex-direction: column;
+    padding: 24px;
+    gap: 20px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .nav-links.open {
+    display: flex;
+  }
+
+  .nav-mobile-toggle {
+    display: block;
+  }
+
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .fusion-pipeline {
+    flex-direction: column;
+  }
+
+  .fusion-connector {
+    width: auto;
+    height: 40px;
+    transform: rotate(90deg);
+  }
+
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .perf-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-inner {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .footer-links {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .gs-tabs {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .gs-code-wrapper {
+    border-radius: 0 0 18px 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-title {
+    font-size: 2.5rem;
+  }
+
+  .stats-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .arch-node {
+    width: 90px;
+    height: 90px;
+  }
+
+  .arch-fusion {
+    width: 150px;
+    height: 65px;
+    font-size: 0.75rem;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav id="main-nav">
+  <div class="nav-inner">
+    <a href="#hero" class="nav-logo gradient-text">HelixMemory</a>
+    <ul class="nav-links" id="nav-links">
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#fusion">Fusion Pipeline</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#performance">Performance</a></li>
+      <li><a href="#getting-started">Get Started</a></li>
+    </ul>
+    <button class="nav-mobile-toggle" id="nav-toggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<!-- Hero Section -->
+<section id="hero">
+  <canvas id="hero-canvas"></canvas>
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      Part of the HelixAgent Ecosystem
+    </div>
+    <h1 class="hero-title gradient-text">HelixMemory</h1>
+    <p class="hero-tagline">Unified Cognitive Memory Engine</p>
+    <p class="hero-subtitle">
+      Orchestrating Mem0, Cognee, Letta, and Graphiti into a single fused intelligence layer
+    </p>
+    <a href="#getting-started" class="hero-cta">
+      Get Started
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14M12 5l7 7-7 7"/>
+      </svg>
+    </a>
+  </div>
+</section>
+
+<!-- Architecture Section -->
+<section id="architecture">
+  <div class="container">
+    <div class="floating-orb orb-1"></div>
+    <div class="floating-orb orb-2"></div>
+    <div class="reveal">
+      <span class="section-label">System Design</span>
+      <h2 class="section-title gradient-text">Architecture Overview</h2>
+      <p class="section-subtitle">Four specialized backends fused through a three-stage engine into a single memory experience.</p>
+    </div>
+
+    <div class="arch-grid">
+      <div class="arch-diagram reveal reveal-delay-1">
+        <div class="arch-diagram-inner">
+          <canvas id="arch-canvas"></canvas>
+          <div class="arch-node arch-node--mem0">
+            <div class="arch-node-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+              </svg>
+            </div>
+            <span>Mem0</span>
+            <span class="arch-node-label">Facts / Notebook</span>
+          </div>
+          <div class="arch-node arch-node--cognee">
+            <div class="arch-node-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+              </svg>
+            </div>
+            <span>Cognee</span>
+            <span class="arch-node-label">Graphs / Library</span>
+          </div>
+          <div class="arch-node arch-node--letta">
+            <div class="arch-node-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round">
+                <path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/><line x1="10" y1="22" x2="14" y2="22"/>
+              </svg>
+            </div>
+            <span>Letta</span>
+            <span class="arch-node-label">Brain / Agent</span>
+          </div>
+          <div class="arch-node arch-node--graphiti">
+            <div class="arch-node-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <span>Graphiti</span>
+            <span class="arch-node-label">Timeline / Temporal</span>
+          </div>
+          <div class="arch-fusion">
+            <span class="gradient-text">Fusion Engine</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arch-cards reveal reveal-delay-2">
+        <div class="arch-card">
+          <div class="arch-card-icon arch-card-icon--mem0">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+            </svg>
+          </div>
+          <div class="arch-card-content">
+            <h4>Mem0</h4>
+            <p>Dynamic fact extraction and preference management with 26%+ accuracy over baseline.</p>
+            <div class="arch-card-tags">
+              <span class="arch-card-tag">Facts</span>
+              <span class="arch-card-tag">Notebook</span>
+              <span class="arch-card-tag">Preferences</span>
+            </div>
+          </div>
+        </div>
+        <div class="arch-card">
+          <div class="arch-card-icon arch-card-icon--cognee">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+          </div>
+          <div class="arch-card-content">
+            <h4>Cognee</h4>
+            <p>Semantic knowledge graphs via ECL pipelines with 38+ data source connectors.</p>
+            <div class="arch-card-tags">
+              <span class="arch-card-tag">Graphs</span>
+              <span class="arch-card-tag">Library</span>
+              <span class="arch-card-tag">ECL Pipeline</span>
+            </div>
+          </div>
+        </div>
+        <div class="arch-card">
+          <div class="arch-card-icon arch-card-icon--letta">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round">
+              <path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/><line x1="10" y1="22" x2="14" y2="22"/>
+            </svg>
+          </div>
+          <div class="arch-card-content">
+            <h4>Letta</h4>
+            <p>Stateful agent runtime with sleep-time compute and editable memory blocks.</p>
+            <div class="arch-card-tags">
+              <span class="arch-card-tag">Brain</span>
+              <span class="arch-card-tag">Agent</span>
+              <span class="arch-card-tag">Core Memory</span>
+            </div>
+          </div>
+        </div>
+        <div class="arch-card">
+          <div class="arch-card-icon arch-card-icon--graphiti">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="arch-card-content">
+            <h4>Graphiti</h4>
+            <p>Temporal knowledge graph with bi-temporal queries and edge invalidation.</p>
+            <div class="arch-card-tags">
+              <span class="arch-card-tag">Timeline</span>
+              <span class="arch-card-tag">Temporal</span>
+              <span class="arch-card-tag">Bi-Temporal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-row reveal reveal-delay-3">
+      <div class="stat-card">
+        <div class="stat-value gradient-text"><span class="counter" data-target="4">0</span></div>
+        <div class="stat-label">Memory Backends</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value gradient-text"><span class="counter" data-target="3">0</span>-Stage</div>
+        <div class="stat-label">Fusion Pipeline</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value gradient-text"><span class="counter" data-target="12">0</span></div>
+        <div class="stat-label">Power Features</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value gradient-text"><span class="counter" data-target="256" data-suffix="+">0</span></div>
+        <div class="stat-label">Tests</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Fusion Pipeline Section -->
+<section id="fusion">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Intelligence Layer</span>
+      <h2 class="section-title gradient-text">Fusion Pipeline</h2>
+      <p class="section-subtitle">Three precision stages transform raw multi-source memories into unified, ranked intelligence.</p>
+    </div>
+
+    <div class="fusion-pipeline reveal reveal-delay-1">
+      <div class="fusion-stage">
+        <div class="fusion-stage-number">Stage 1</div>
+        <h3>Collection &amp; Normalization</h3>
+        <p>Parallel queries across all four backends. Results normalized into a unified MemoryEntry format with source attribution, timestamps, and confidence metadata.</p>
+      </div>
+      <div class="fusion-connector">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </div>
+      <div class="fusion-stage">
+        <div class="fusion-stage-number">Stage 2</div>
+        <h3>Deduplication</h3>
+        <p>Cosine similarity analysis detects and merges semantically equivalent entries across sources. Threshold at 0.92 eliminates noise while preserving nuance.</p>
+      </div>
+      <div class="fusion-connector">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </div>
+      <div class="fusion-stage">
+        <div class="fusion-stage-number">Stage 3</div>
+        <h3>Cross-Source Re-Ranking</h3>
+        <p>A weighted scoring formula combines relevance, recency, source reliability, and memory type to produce a final ranked set of memories.</p>
+      </div>
+    </div>
+
+    <div class="fusion-formula reveal reveal-delay-2">
+      <div class="fusion-formula-label">Scoring Formula</div>
+      <div class="fusion-formula-expr">
+        <span class="ff-keyword">score</span> <span class="ff-op">=</span>
+        <span class="ff-keyword">relevance</span> <span class="ff-op">*</span> <span class="ff-num">0.40</span>
+        <span class="ff-op">+</span> <span class="ff-keyword">recency</span> <span class="ff-op">*</span> <span class="ff-num">0.25</span>
+        <span class="ff-op">+</span> <span class="ff-keyword">source</span> <span class="ff-op">*</span> <span class="ff-num">0.20</span>
+        <span class="ff-op">+</span> <span class="ff-keyword">type</span> <span class="ff-op">*</span> <span class="ff-num">0.15</span>
+      </div>
+      <div class="fusion-threshold">
+        <span class="fusion-threshold-text">Deduplication threshold:</span>
+        <div class="fusion-threshold-bar">
+          <div class="fusion-threshold-fill"></div>
+        </div>
+        <span class="fusion-threshold-text">cosine sim <span class="fusion-threshold-value">= 0.92</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features Section -->
+<section id="features">
+  <div class="container">
+    <div class="floating-orb orb-1"></div>
+    <div class="reveal">
+      <span class="section-label">Capabilities</span>
+      <h2 class="section-title gradient-text">12 Power Features</h2>
+      <p class="section-subtitle">Each feature leverages the full power of the unified memory layer.</p>
+    </div>
+
+    <div class="features-grid">
+      <!-- Feature 1: Codebase DNA -->
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-purple)" stroke-width="2" stroke-linecap="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h4>Codebase DNA</h4>
+        <p>Builds a persistent memory profile of coding patterns, architecture decisions, and style preferences across your entire codebase.</p>
+      </div>
+
+      <!-- Feature 2: Procedural Memory -->
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+        </div>
+        <h4>Procedural Memory</h4>
+        <p>Captures learned workflows, debugging strategies, deployment procedures, and operational patterns for reuse across sessions.</p>
+      </div>
+
+      <!-- Feature 3: Multi-Agent Mesh -->
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-blue)" stroke-width="2" stroke-linecap="round">
+            <circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="19" r="3"/><line x1="5" y1="9" x2="12" y2="16"/><line x1="19" y1="9" x2="12" y2="16"/><line x1="8" y1="6" x2="16" y2="6"/>
+          </svg>
+        </div>
+        <h4>Multi-Agent Mesh</h4>
+        <p>Enables multiple AI agents to share memories through a unified mesh with scoped visibility, conflict resolution, and real-time sync.</p>
+      </div>
+
+      <!-- Feature 4: Temporal Reasoning -->
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <h4>Temporal Reasoning</h4>
+        <p>Bi-temporal queries, edge invalidation, timeline construction, and causal event chain resolution powered by Graphiti.</p>
+      </div>
+
+      <!-- Feature 5: Debate Memory -->
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-purple)" stroke-width="2" stroke-linecap="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <h4>Debate Memory</h4>
+        <p>Memory-backed context injection for AI debate agents, enabling persistent argumentation context and cross-debate learning.</p>
+      </div>
+
+      <!-- Feature 6: Context Window Management -->
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <h4>Context Window Management</h4>
+        <p>Dynamically manages context windows by selecting the most relevant memories to maximize signal within token limits.</p>
+      </div>
+
+      <!-- Feature 7: Cross-Project Transfer -->
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-blue)" stroke-width="2" stroke-linecap="round">
+            <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </div>
+        <h4>Cross-Project Transfer</h4>
+        <p>Transfers learned patterns, conventions, and architectural knowledge between projects while maintaining isolation boundaries.</p>
+      </div>
+
+      <!-- Feature 8: MCP Bridge -->
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+        </div>
+        <h4>MCP Bridge</h4>
+        <p>Exposes memory operations through MCP-compatible endpoints, making HelixMemory accessible to any MCP-enabled tool or agent.</p>
+      </div>
+
+      <!-- Feature 9: Code Generation Context -->
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-purple)" stroke-width="2" stroke-linecap="round">
+            <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+          </svg>
+        </div>
+        <h4>Code Generation Context</h4>
+        <p>Leverages stored coding patterns, conventions, and project DNA to provide contextually rich generation assistance.</p>
+      </div>
+
+      <!-- Feature 10: Confidence Scoring -->
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round">
+            <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
+          </svg>
+        </div>
+        <h4>Confidence Scoring</h4>
+        <p>Every memory entry receives a confidence score based on source reliability, corroboration count, age, and provenance tracking.</p>
+      </div>
+
+      <!-- Feature 11: Quality Feedback Loop -->
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-blue)" stroke-width="2" stroke-linecap="round">
+            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </div>
+        <h4>Quality Feedback Loop</h4>
+        <p>Continuously monitors memory quality, identifies degradation, and self-corrects through automated pruning and reinforcement.</p>
+      </div>
+
+      <!-- Feature 12: Memory Snapshots -->
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </div>
+        <h4>Memory Snapshots</h4>
+        <p>Point-in-time snapshots of the memory state for backup, rollback, and temporal analysis of knowledge evolution.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Performance Section -->
+<section id="performance">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Engineering</span>
+      <h2 class="section-title gradient-text">Built for Production</h2>
+      <p class="section-subtitle" style="margin: 0 auto;">Rigorously tested, zero-dependency core, designed for mission-critical AI workloads.</p>
+    </div>
+
+    <div class="perf-grid">
+      <div class="perf-card reveal">
+        <div class="perf-value gradient-text"><span class="counter" data-target="256" data-suffix="+">0</span></div>
+        <div class="perf-label">Unit Tests</div>
+        <div class="perf-sublabel">Table-driven, race-tested</div>
+      </div>
+      <div class="perf-card reveal reveal-delay-1">
+        <div class="perf-value gradient-text"><span class="counter" data-target="10">0</span></div>
+        <div class="perf-label">Benchmarks</div>
+        <div class="perf-sublabel">Profiled and optimized</div>
+      </div>
+      <div class="perf-card reveal reveal-delay-2">
+        <div class="perf-value gradient-text"><span class="counter" data-target="4">0</span></div>
+        <div class="perf-label">Backend Integrations</div>
+        <div class="perf-sublabel">Mem0 + Cognee + Letta + Graphiti</div>
+      </div>
+      <div class="perf-card reveal reveal-delay-1">
+        <div class="perf-value gradient-text"><span class="counter" data-target="26">0</span></div>
+        <div class="perf-label">Packages</div>
+        <div class="perf-sublabel">Cleanly separated concerns</div>
+      </div>
+      <div class="perf-card reveal reveal-delay-2">
+        <div class="perf-value gradient-text">&lt;<span class="counter" data-target="100">0</span>ms</div>
+        <div class="perf-label">Build Time</div>
+        <div class="perf-sublabel">Incremental Go compilation</div>
+      </div>
+      <div class="perf-card reveal reveal-delay-3">
+        <div class="perf-value gradient-text"><span class="counter" data-target="0">0</span></div>
+        <div class="perf-label">External Dependencies</div>
+        <div class="perf-sublabel">Zero-dependency core design</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Getting Started Section -->
+<section id="getting-started">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Quick Start</span>
+      <h2 class="section-title gradient-text">Getting Started</h2>
+      <p class="section-subtitle">From infrastructure to first query in under five minutes.</p>
+    </div>
+
+    <div class="reveal reveal-delay-1">
+      <div class="gs-tabs">
+        <button class="gs-tab active" data-tab="docker">Docker Compose</button>
+        <button class="gs-tab" data-tab="init">Initialization</button>
+        <button class="gs-tab" data-tab="usage">Basic Usage</button>
+      </div>
+
+      <div class="gs-code-wrapper">
+        <!-- Docker Compose Tab -->
+        <div class="gs-code-panel active" id="tab-docker">
+          <div class="gs-code-header">
+            <span class="gs-code-title">docker/docker-compose.yml</span>
+            <button class="gs-copy-btn" onclick="copyCode('docker')">Copy</button>
+          </div>
+          <div class="gs-code-block">
+<pre id="code-docker"><span class="hl-cm"># Start the full HelixMemory infrastructure</span>
+<span class="hl-var">cd</span> docker <span class="hl-op">&amp;&amp;</span> docker compose up <span class="hl-op">-</span>d
+
+<span class="hl-cm"># Services started:</span>
+<span class="hl-cm">#   Letta     -&gt; :8283  (agent runtime)</span>
+<span class="hl-cm">#   Mem0      -&gt; :8001  (fact extraction)</span>
+<span class="hl-cm">#   Cognee    -&gt; :8000  (knowledge graphs)</span>
+<span class="hl-cm">#   Qdrant    -&gt; :6333  (vector store)</span>
+<span class="hl-cm">#   Neo4j     -&gt; :7474  (graph database)</span>
+<span class="hl-cm">#   Redis     -&gt; :6379  (cache layer)</span>
+<span class="hl-cm">#   PostgreSQL -&gt; :5432 (persistence)</span>
+
+<span class="hl-cm"># Verify all services are healthy</span>
+docker compose ps</pre>
+          </div>
+        </div>
+
+        <!-- Init Tab -->
+        <div class="gs-code-panel" id="tab-init">
+          <div class="gs-code-header">
+            <span class="gs-code-title">provider/unified.go</span>
+            <button class="gs-copy-btn" onclick="copyCode('init')">Copy</button>
+          </div>
+          <div class="gs-code-block">
+<pre id="code-init"><span class="hl-kw">import</span> (
+    <span class="hl-str">"digital.vasic.helixmemory/pkg/config"</span>
+    <span class="hl-str">"digital.vasic.helixmemory/pkg/provider"</span>
+)
+
+<span class="hl-cm">// Load configuration from environment</span>
+<span class="hl-var">cfg</span> <span class="hl-op">:=</span> config.<span class="hl-fn">LoadFromEnv</span>()
+
+<span class="hl-cm">// Create the unified memory provider</span>
+<span class="hl-var">ump</span>, <span class="hl-var">err</span> <span class="hl-op">:=</span> provider.<span class="hl-fn">NewUnifiedMemoryProvider</span>(cfg)
+<span class="hl-kw">if</span> err <span class="hl-op">!=</span> <span class="hl-kw">nil</span> {
+    log.<span class="hl-fn">Fatalf</span>(<span class="hl-str">"failed to init HelixMemory: %v"</span>, err)
+}
+
+<span class="hl-cm">// Start background services (consolidation, metrics)</span>
+ump.<span class="hl-fn">Start</span>(ctx)
+<span class="hl-kw">defer</span> ump.<span class="hl-fn">Stop</span>()</pre>
+          </div>
+        </div>
+
+        <!-- Usage Tab -->
+        <div class="gs-code-panel" id="tab-usage">
+          <div class="gs-code-header">
+            <span class="gs-code-title">example_usage.go</span>
+            <button class="gs-copy-btn" onclick="copyCode('usage')">Copy</button>
+          </div>
+          <div class="gs-code-block">
+<pre id="code-usage"><span class="hl-cm">// Store a memory (auto-routed to optimal backend)</span>
+<span class="hl-var">entry</span> <span class="hl-op">:=</span> <span class="hl-op">&amp;</span>types.<span class="hl-type">MemoryEntry</span>{
+    <span class="hl-var">Content</span>:  <span class="hl-str">"User prefers functional error handling"</span>,
+    <span class="hl-var">Type</span>:     types.<span class="hl-type">MemoryTypeFact</span>,
+    <span class="hl-var">UserID</span>:   <span class="hl-str">"agent-001"</span>,
+    <span class="hl-var">Metadata</span>: <span class="hl-kw">map</span>[<span class="hl-type">string</span>]<span class="hl-kw">any</span>{<span class="hl-str">"project"</span>: <span class="hl-str">"helixagent"</span>},
+}
+<span class="hl-var">id</span>, <span class="hl-var">err</span> <span class="hl-op">:=</span> ump.<span class="hl-fn">Add</span>(ctx, entry)
+
+<span class="hl-cm">// Search across all backends with fusion</span>
+<span class="hl-var">results</span>, <span class="hl-var">err</span> <span class="hl-op">:=</span> ump.<span class="hl-fn">Search</span>(ctx, <span class="hl-str">"error handling patterns"</span>, <span class="hl-num">10</span>)
+
+<span class="hl-cm">// Results are fused, deduplicated, and ranked</span>
+<span class="hl-kw">for</span> _, <span class="hl-var">r</span> <span class="hl-op">:=</span> <span class="hl-kw">range</span> results {
+    fmt.<span class="hl-fn">Printf</span>(<span class="hl-str">"[%.2f] %s (via %s)\n"</span>,
+        r.<span class="hl-var">Score</span>, r.<span class="hl-var">Content</span>, r.<span class="hl-var">Source</span>)
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <h3 class="gradient-text">HelixMemory</h3>
+        <p>Part of the HelixAgent ecosystem</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#getting-started">Documentation</a></li>
+      </ul>
+    </div>
+    <div class="footer-bottom">
+      HelixMemory -- Unified Cognitive Memory Engine -- HelixDevelopment Organization
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ===== NEURAL NETWORK CANVAS ===== */
+(function() {
+  var canvas = document.getElementById('hero-canvas');
+  var ctx = canvas.getContext('2d');
+  var nodes = [];
+  var edges = [];
+  var mouse = { x: -1000, y: -1000 };
+  var animFrame;
+  var dpr = window.devicePixelRatio || 1;
+
+  function resize() {
+    var rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function initNodes() {
+    nodes = [];
+    var w = canvas.width / dpr;
+    var h = canvas.height / dpr;
+    var count = Math.min(Math.floor((w * h) / 12000), 120);
+    for (var i = 0; i < count; i++) {
+      nodes.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        r: Math.random() * 2 + 1,
+        pulse: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  function draw() {
+    var w = canvas.width / dpr;
+    var h = canvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+
+    var maxDist = 160;
+
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      n.x += n.vx;
+      n.y += n.vy;
+      n.pulse += 0.02;
+
+      if (n.x < 0 || n.x > w) n.vx *= -1;
+      if (n.y < 0 || n.y > h) n.vy *= -1;
+
+      // Mouse interaction
+      var dx = mouse.x - n.x;
+      var dy = mouse.y - n.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 200) {
+        n.vx -= dx * 0.00003;
+        n.vy -= dy * 0.00003;
+      }
+
+      for (var j = i + 1; j < nodes.length; j++) {
+        var m = nodes[j];
+        var edx = m.x - n.x;
+        var edy = m.y - n.y;
+        var edist = Math.sqrt(edx * edx + edy * edy);
+        if (edist < maxDist) {
+          var alpha = (1 - edist / maxDist) * 0.15;
+          ctx.beginPath();
+          ctx.moveTo(n.x, n.y);
+          ctx.lineTo(m.x, m.y);
+
+          var grad = ctx.createLinearGradient(n.x, n.y, m.x, m.y);
+          grad.addColorStop(0, 'rgba(124, 58, 237,' + alpha + ')');
+          grad.addColorStop(1, 'rgba(6, 182, 212,' + alpha + ')');
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+
+      // Draw node
+      var pulseAlpha = 0.4 + Math.sin(n.pulse) * 0.3;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(167, 139, 250,' + pulseAlpha + ')';
+      ctx.fill();
+
+      // Glow
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(124, 58, 237,' + (pulseAlpha * 0.1) + ')';
+      ctx.fill();
+    }
+
+    animFrame = requestAnimationFrame(draw);
+  }
+
+  resize();
+  initNodes();
+  draw();
+
+  window.addEventListener('resize', function() {
+    resize();
+    initNodes();
+  });
+
+  canvas.parentElement.addEventListener('mousemove', function(e) {
+    var rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+  });
+
+  canvas.parentElement.addEventListener('mouseleave', function() {
+    mouse.x = -1000;
+    mouse.y = -1000;
+  });
+})();
+
+/* ===== ARCHITECTURE DIAGRAM FLOW LINES ===== */
+(function() {
+  var canvas = document.getElementById('arch-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var time = 0;
+
+  function resize() {
+    var parent = canvas.parentElement;
+    var rect = parent.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function draw() {
+    var w = canvas.width / dpr;
+    var h = canvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+    time += 0.008;
+
+    // Flow line positions - from each node to fusion center
+    var fusion = { x: w * 0.5, y: h - 40 };
+    var sources = [
+      { x: w * 0.15 + 55, y: 110, color: '167, 139, 250' },
+      { x: w * 0.85 - 55, y: 110, color: '96, 165, 250' },
+      { x: 55, y: h * 0.68 - 55 + 55, color: '52, 211, 153' },
+      { x: w - 55, y: h * 0.68 - 55 + 55, color: '251, 191, 36' }
+    ];
+
+    sources.forEach(function(src, idx) {
+      var segments = 30;
+      for (var i = 0; i < segments; i++) {
+        var t = i / segments;
+        var tNext = (i + 1) / segments;
+
+        // Bezier curve
+        var cp = { x: src.x, y: fusion.y - (fusion.y - src.y) * 0.3 };
+        var cp2 = { x: fusion.x, y: src.y + (fusion.y - src.y) * 0.3 };
+
+        var x1 = bezier(src.x, cp.x, cp2.x, fusion.x, t);
+        var y1 = bezier(src.y, cp.y, cp2.y, fusion.y, t);
+        var x2 = bezier(src.x, cp.x, cp2.x, fusion.x, tNext);
+        var y2 = bezier(src.y, cp.y, cp2.y, fusion.y, tNext);
+
+        // Animated pulse
+        var pulse = (Math.sin(time * 3 - t * Math.PI * 2 + idx * 1.5) + 1) * 0.5;
+        var alpha = 0.03 + pulse * 0.12;
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = 'rgba(' + src.color + ',' + alpha + ')';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Animated particle
+      var pt = ((time * 0.3 + idx * 0.25) % 1);
+      var cp = { x: src.x, y: fusion.y - (fusion.y - src.y) * 0.3 };
+      var cp2 = { x: fusion.x, y: src.y + (fusion.y - src.y) * 0.3 };
+      var px = bezier(src.x, cp.x, cp2.x, fusion.x, pt);
+      var py = bezier(src.y, cp.y, cp2.y, fusion.y, pt);
+
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + src.color + ', 0.6)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(px, py, 8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + src.color + ', 0.1)';
+      ctx.fill();
+    });
+
+    requestAnimationFrame(draw);
+  }
+
+  function bezier(p0, p1, p2, p3, t) {
+    var mt = 1 - t;
+    return mt * mt * mt * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t * t * t * p3;
+  }
+
+  resize();
+  draw();
+  window.addEventListener('resize', resize);
+})();
+
+/* ===== NAVIGATION SCROLL ===== */
+(function() {
+  var nav = document.getElementById('main-nav');
+  var toggle = document.getElementById('nav-toggle');
+  var links = document.getElementById('nav-links');
+
+  window.addEventListener('scroll', function() {
+    if (window.scrollY > 50) {
+      nav.classList.add('scrolled');
+    } else {
+      nav.classList.remove('scrolled');
+    }
+  });
+
+  toggle.addEventListener('click', function() {
+    links.classList.toggle('open');
+  });
+
+  links.querySelectorAll('a').forEach(function(a) {
+    a.addEventListener('click', function() {
+      links.classList.remove('open');
+    });
+  });
+})();
+
+/* ===== SCROLL REVEAL ===== */
+(function() {
+  var reveals = document.querySelectorAll('.reveal');
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        // Start counters if they exist
+        entry.target.querySelectorAll('.counter').forEach(startCounter);
+      }
+    });
+  }, {
+    threshold: 0.15,
+    rootMargin: '0px 0px -50px 0px'
+  });
+
+  reveals.forEach(function(el) {
+    observer.observe(el);
+  });
+
+  var countedSet = new Set();
+
+  function startCounter(el) {
+    if (countedSet.has(el)) return;
+    countedSet.add(el);
+
+    var target = parseInt(el.getAttribute('data-target'), 10);
+    var suffix = el.getAttribute('data-suffix') || '';
+    var duration = 1500;
+    var start = performance.now();
+
+    function update(now) {
+      var elapsed = now - start;
+      var progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var current = Math.round(eased * target);
+      el.textContent = current + suffix;
+
+      if (progress < 1) {
+        requestAnimationFrame(update);
+      }
+    }
+
+    requestAnimationFrame(update);
+  }
+})();
+
+/* ===== CODE TABS ===== */
+(function() {
+  var tabs = document.querySelectorAll('.gs-tab');
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      tabs.forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+
+      document.querySelectorAll('.gs-code-panel').forEach(function(p) {
+        p.classList.remove('active');
+      });
+
+      var target = document.getElementById('tab-' + tab.getAttribute('data-tab'));
+      if (target) target.classList.add('active');
+    });
+  });
+})();
+
+/* ===== COPY CODE ===== */
+function copyCode(id) {
+  var code = document.getElementById('code-' + id);
+  if (!code) return;
+  var text = code.textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = code.closest('.gs-code-panel').querySelector('.gs-copy-btn');
+    var original = btn.textContent;
+    btn.textContent = 'Copied';
+    btn.style.color = '#22d3ee';
+    setTimeout(function() {
+      btn.textContent = original;
+      btn.style.color = '';
+    }, 2000);
+  });
+}
+
+/* ===== PARALLAX ON FLOATING ORBS ===== */
+(function() {
+  var orbs = document.querySelectorAll('.floating-orb');
+  window.addEventListener('scroll', function() {
+    var scrollY = window.scrollY;
+    orbs.forEach(function(orb, i) {
+      var speed = (i % 2 === 0) ? 0.03 : -0.02;
+      orb.style.transform = 'translateY(' + (scrollY * speed) + 'px)';
+    });
+  });
+})();
+</script>
+</body>
+</html>
