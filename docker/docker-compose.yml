@@ -1,0 +1,127 @@
+version: "3.8"
+
+services:
+  letta-server:
+    image: letta/letta:latest
+    container_name: helixmemory-letta
+    ports:
+      - "8283:8283"
+    environment:
+      - LETTA_PG_URI=postgresql://letta:letta@postgres:5432/letta
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8283/v1/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mem0-api:
+    image: mem0ai/mem0:latest
+    container_name: helixmemory-mem0
+    ports:
+      - "8001:8001"
+    environment:
+      - MEM0_VECTOR_STORE=qdrant
+      - MEM0_QDRANT_HOST=qdrant
+      - MEM0_QDRANT_PORT=6333
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cognee-api:
+    image: topoteretes/cognee:latest
+    container_name: helixmemory-cognee
+    ports:
+      - "8000:8000"
+    environment:
+      - COGNEE_VECTOR_DB=qdrant
+      - COGNEE_QDRANT_URL=http://qdrant:6333
+      - COGNEE_GRAPH_DB=neo4j
+      - COGNEE_GRAPH_DB_URL=bolt://neo4j:7687
+      - COGNEE_GRAPH_DB_USER=neo4j
+      - COGNEE_GRAPH_DB_PASSWORD=helixmemory
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: helixmemory-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: helixmemory-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/helixmemory
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: helixmemory-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: helixmemory-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=letta
+      - POSTGRES_PASSWORD=letta
+      - POSTGRES_DB=letta
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U letta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qdrant-data:
+  neo4j-data:
+  redis-data:
+  postgres-data:
