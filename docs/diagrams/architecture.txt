@@ -1,0 +1,260 @@
+================================================================================
+                    HelixMemory Architecture Diagram
+                    Module: digital.vasic.helixmemory
+================================================================================
+
+
+                        EXTERNAL INTERFACE
+                        ==================
+
+    HelixAgent / CLI Agents / MCP Clients
+                    |
+                    v
+    +-----------------------------------------------+
+    |         MemoryStoreAdapter                     |
+    |  (bridge to digital.vasic.memory interface)    |
+    |                                                |
+    |  Add() Search() Get() Update() Delete() List() |
+    +---------------------|-------------------------+
+                          |
+                          | type conversion:
+                          | Memory <--> MemoryEntry
+                          |
+                          v
+
+                   UNIFIED PROVIDER
+                   ================
+
+    +-----------------------------------------------+
+    |         UnifiedMemoryProvider                   |
+    |         (The Nervous System)                    |
+    |                                                |
+    |  +----------+   +----------+   +----------+   |
+    |  |  Router  |   |  Fusion  |   | Consoli- |   |
+    |  |          |   |  Engine  |   | dation   |   |
+    |  +-----+----+   +-----+----+   +-----+----+  |
+    |        |              |              |         |
+    +--------|--------------|--------------|--------+
+             |              |              |
+             v              v              v
+
+
+                     ROUTING LAYER
+                     =============
+
+    +-----------------------------------------------+
+    |                  Router                        |
+    |                                                |
+    |  WRITE PATH:          READ PATH:               |
+    |  ClassifyMemoryType   RouteRead                |
+    |  RouteWrite           (parallel fan-out)       |
+    |                                                |
+    |  Type --> Backend:     Default: ALL backends   |
+    |  fact      --> Mem0    Filtered: by source/type|
+    |  graph     --> Cognee                          |
+    |  core      --> Letta                           |
+    |  temporal  --> Graphiti                         |
+    |  episodic  --> Letta                           |
+    |  procedural--> Cognee                          |
+    +-----------------------------------------------+
+             |                            |
+             v                            v
+
+               BACKEND LAYER (4 Providers)
+               ===========================
+
+    +----------+  +----------+  +----------+  +----------+
+    |   Mem0   |  |  Cognee  |  |  Letta   |  | Graphiti |
+    |          |  |          |  |          |  |          |
+    | Role:    |  | Role:    |  | Role:    |  | Role:    |
+    | Notebook |  | Library  |  | Brain    |  | Timeline |
+    |          |  |          |  |          |  |          |
+    | Facts,   |  | Graphs,  |  | Core mem,|  | Temporal,|
+    | prefs    |  | entities |  | agents,  |  | bi-temp  |
+    |          |  |          |  | sleep    |  | queries  |
+    |          |  |          |  | compute  |  |          |
+    | Trust:   |  | Trust:   |  | Trust:   |  | Trust:   |
+    | 0.85     |  | 0.80     |  | 0.95     |  | 0.85     |
+    |          |  |          |  |          |  |          |
+    | Circuit  |  | Circuit  |  | Circuit  |  | Circuit  |
+    | Breaker  |  | Breaker  |  | Breaker  |  | Breaker  |
+    +-----+----+  +-----+----+  +-----+----+  +-----+----+
+          |              |              |              |
+          v              v              v              v
+
+    +-----------------------------------------------+
+    |            Infrastructure Services             |
+    |                                                |
+    |  Qdrant     Neo4j      PostgreSQL    Redis     |
+    |  :6333      :7474      :5432         :6379     |
+    |  (vectors)  :7687      (Letta DB)    (cache)   |
+    |             (graphs)                           |
+    +-----------------------------------------------+
+
+
+                   FUSION PIPELINE
+                   ===============
+
+    Results from Mem0  Cognee  Letta  Graphiti
+          |             |        |        |
+          v             v        v        v
+    +-----------------------------------------------+
+    |              Fusion Engine                      |
+    |                                                |
+    |  STAGE 1: Collection & Normalization           |
+    |  +------------------------------------------+  |
+    |  | Gather all entries from all results       |  |
+    |  | Normalize relevance to [0, 1] range       |  |
+    |  | normalized = entry.rel / max(all.rel)     |  |
+    |  +------------------------------------------+  |
+    |                      |                         |
+    |                      v                         |
+    |  STAGE 2: Deduplication                        |
+    |  +------------------------------------------+  |
+    |  | For each pair of entries:                 |  |
+    |  |   if embeddings: cosine_similarity        |  |
+    |  |   else: jaccard_similarity (tokens)       |  |
+    |  |                                           |  |
+    |  |   if sim >= 0.92: keep higher confidence  |  |
+    |  +------------------------------------------+  |
+    |                      |                         |
+    |                      v                         |
+    |  STAGE 3: Cross-Source Re-Ranking              |
+    |  +------------------------------------------+  |
+    |  | score = relevance * 0.40                  |  |
+    |  |       + recency   * 0.25                  |  |
+    |  |       + source    * 0.20                  |  |
+    |  |       + type      * 0.15                  |  |
+    |  |                                           |  |
+    |  | recency = exp(-0.00413 * hours)           |  |
+    |  | (half-life ~7 days)                       |  |
+    |  |                                           |  |
+    |  | Sort by score DESC, apply TopK            |  |
+    |  +------------------------------------------+  |
+    |                      |                         |
+    +----------------------|------------------------+
+                           |
+                           v
+                    SearchResult {
+                        Entries: ranked & deduped
+                        Total: count
+                        Duration: aggregate
+                        Sources: responding backends
+                    }
+
+
+                POWER FEATURES (12)
+                ====================
+
+    Each feature is an independent package under pkg/features/
+    that depends on the types.MemoryProvider interface.
+
+    +------------------+  +------------------+  +------------------+
+    | 1. Codebase DNA  |  | 2. Procedural    |  | 3. Multi-Agent   |
+    |    Profiling      |  |    Memory        |  |    Memory Mesh   |
+    |                  |  |                  |  |                  |
+    | Detects coding   |  | Learns and       |  | Shared memory    |
+    | patterns, prefs  |  | tracks workflows |  | with scope       |
+    | and conventions  |  | and procedures   |  | isolation        |
+    +------------------+  +------------------+  +------------------+
+
+    +------------------+  +------------------+  +------------------+
+    | 4. Temporal      |  | 5. Confidence    |  | 6. Quality Loop  |
+    |    Reasoning     |  |    Scoring &     |  |                  |
+    |                  |  |    Provenance    |  | Self-improving   |
+    | Bi-temporal      |  | 5-factor scoring |  | memory quality   |
+    | queries, "what   |  | and origin       |  | with recommended |
+    | was true at T?"  |  | tracking         |  | actions          |
+    +------------------+  +------------------+  +------------------+
+
+    +------------------+  +------------------+  +------------------+
+    | 7. Snapshots &   |  | 8. Debate Memory |  | 9. Context       |
+    |    Rollback      |  |    Augmentation   |  |    Window        |
+    |                  |  |                  |  |    Engineering   |
+    | Point-in-time    |  | Memory context   |  | Token-aware      |
+    | captures, diff,  |  | for AI debates,  |  | packing of       |
+    | compare          |  | outcomes stored  |  | memories         |
+    +------------------+  +------------------+  +------------------+
+
+    +------------------+  +------------------+  +------------------+
+    | 10. Cross-Project|  | 11. MCP Bridge   |  | 12. Code Gen     |
+    |     Knowledge    |  |                  |  |     Context      |
+    |     Transfer     |  | 5 MCP tools:     |  |                  |
+    |                  |  | search, add,     |  | Memory-augmented |
+    | Transfer patterns|  | get, delete,     |  | prompt building  |
+    | between projects |  | health           |  | for code tasks   |
+    +------------------+  +------------------+  +------------------+
+
+
+                CIRCUIT BREAKER PATTERN
+                =======================
+
+    For each backend client (Mem0, Cognee, Letta, Graphiti):
+
+                  +--------+
+           +----->| CLOSED |<-----+
+           |      +---+----+      |
+           |          |           |
+           |    failures >= 5     | 2 consecutive
+           |          |           | successes
+           |          v           |
+           |      +--------+     |
+           |      |  OPEN  |-----+
+           |      +---+----+     |
+           |          |          |
+           |   timeout (30s)     |
+           |   expires           |
+           |          |          |
+           |          v          |
+           |    +-----------+    |
+           +----| HALF-OPEN |----+
+                +-----------+
+
+    CLOSED:    All requests pass. Failures counted.
+    OPEN:      All requests fail-fast. No network calls.
+    HALF-OPEN: Test requests. 2 successes = close. 1 failure = reopen.
+
+
+                CONSOLIDATION ENGINE
+                ====================
+
+    Background loop (default: every 30 minutes)
+
+    +----> Sleep for ConsolidationInterval
+    |           |
+    |           v
+    |   Phase 1: Collect
+    |   - Fetch recent entries from ALL providers
+    |   - Batch size: 100
+    |           |
+    |           v
+    |   Phase 2: Deduplicate
+    |   - Remove exact ID duplicates
+    |           |
+    |           v
+    |   Phase 3: Enrich
+    |   - Add consolidated_at timestamp
+    |   - Add source_count metadata
+    |           |
+    |           v
+    |   Update Stats
+    |   - memories_processed
+    |   - deduplicated
+    |   - consolidated
+    |   - errors
+    |           |
+    +-----------+
+
+
+                METRICS (Prometheus)
+                ====================
+
+    Namespace: helixmemory_
+
+    Histograms:             Counters:               Gauges:
+    - search_latency        - search_total           - provider_healthy
+    - add_latency           - add_total              - circuit_breaker_state
+    - fusion_entries_count  - fusion_deduped_total   - active_providers
+    - consolidation_dur     - consolidation_runs
+
+================================================================================

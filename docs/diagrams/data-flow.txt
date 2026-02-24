@@ -1,0 +1,369 @@
+================================================================================
+                    HelixMemory Data Flow Diagram
+                    Module: digital.vasic.helixmemory
+================================================================================
+
+
+============================
+  WRITE PATH (Add/Update)
+============================
+
+    Caller (HelixAgent, MCP Client, etc.)
+        |
+        | MemoryEntry {
+        |     Content: "User prefers table-driven tests"
+        |     Type:    "" (empty, or explicit)
+        |     UserID:  "user-123"
+        | }
+        v
+    +-----------------------------------------------+
+    |          UnifiedMemoryProvider.Add()            |
+    +----------------------|------------------------+
+                           |
+                           v
+    +-----------------------------------------------+
+    |                   Router                       |
+    |                                                |
+    |   Is entry.Type set?                           |
+    |       |                                        |
+    |   NO--+-->  ClassifyMemoryType(content)         |
+    |       |     Analyze content for keywords:       |
+    |       |     "prefers" --> core                  |
+    |       |                                        |
+    |   YES-+                                        |
+    |       |                                        |
+    |       v                                        |
+    |   RouteWrite(entry)                            |
+    |       |                                        |
+    |   Lookup type in writePriority map:            |
+    |       fact       --> mem0                      |
+    |       graph      --> cognee                    |
+    |       core       --> letta    <-- selected     |
+    |       temporal   --> graphiti                   |
+    |       episodic   --> letta                     |
+    |       procedural --> cognee                    |
+    +----------------------|------------------------+
+                           |
+                           | target = letta
+                           v
+    +-----------------------------------------------+
+    |   provider = providers[letta]                  |
+    |                                                |
+    |   provider.Add(ctx, entry)                     |
+    |       |                                        |
+    |       +--- SUCCESS --> return nil              |
+    |       |                                        |
+    |       +--- FAILURE                             |
+    |               |                                |
+    |               v                                |
+    |   Fallback: try remaining providers            |
+    |       |                                        |
+    |   for source, p := range providers:            |
+    |       if source == letta: skip                 |
+    |       p.Add(ctx, entry)                        |
+    |           |                                    |
+    |           +--- SUCCESS --> return nil           |
+    |           +--- FAILURE --> continue             |
+    |       |                                        |
+    |   All failed --> return error                   |
+    +-----------------------------------------------+
+
+
+    Inside a Backend Client (e.g., Letta):
+
+    +-----------------------------------------------+
+    |   letta.Client.Add(ctx, entry)                 |
+    |                                                |
+    |   1. Check circuit breaker                     |
+    |      breaker.Allow()?                          |
+    |          NO  --> return "circuit breaker open"  |
+    |          YES --> continue                      |
+    |                                                |
+    |   2. Ensure agent exists                       |
+    |      EnsureAgent(ctx)                          |
+    |          First call: list agents, find/create  |
+    |          Subsequent: cached agentID            |
+    |                                                |
+    |   3. Send message to Letta API                 |
+    |      POST /v1/agents/{id}/messages             |
+    |      Body: [MEMORY_STORE] {content}            |
+    |                                                |
+    |   4. Handle response                           |
+    |      200 OK  --> breaker.RecordSuccess()       |
+    |      4xx/5xx --> breaker.RecordFailure()        |
+    +-----------------------------------------------+
+
+
+============================
+  READ PATH (Search)
+============================
+
+    Caller
+        |
+        | SearchRequest {
+        |     Query:  "coding preferences"
+        |     UserID: "user-123"
+        |     TopK:   10
+        | }
+        v
+    +-----------------------------------------------+
+    |        UnifiedMemoryProvider.Search()           |
+    +----------------------|------------------------+
+                           |
+                           v
+    +-----------------------------------------------+
+    |                   Router                       |
+    |                                                |
+    |   RouteRead(request)                           |
+    |       |                                        |
+    |   Has explicit Sources filter?                 |
+    |       YES --> return those sources             |
+    |       NO  --> return all: [mem0, cognee,       |
+    |                            letta, graphiti]    |
+    +----------------------|------------------------+
+                           |
+                           | sources = [mem0, cognee, letta, graphiti]
+                           v
+    +-----------------------------------------------+
+    |   Filter to available providers                |
+    |   (only those registered and not nil)          |
+    |                                                |
+    |   available = [mem0, cognee, letta]            |
+    |   (graphiti not registered in this example)    |
+    +----------------------|------------------------+
+                           |
+                           v
+    +-----------------------------------------------+
+    |   Parallel Search (errgroup)                   |
+    |   Concurrency limit: MaxConcurrentQueries (4)  |
+    |                                                |
+    |   +---------+  +---------+  +---------+       |
+    |   |  Mem0   |  | Cognee  |  |  Letta  |       |
+    |   | Search  |  | Search  |  | Search  |       |
+    |   |         |  |         |  |         |       |
+    |   | timeout:|  | timeout:|  | timeout:|       |
+    |   | 10s     |  | 10s     |  | 10s     |       |
+    |   +---------+  +---------+  +---------+       |
+    |       |             |            |             |
+    |       v             v            v             |
+    |   Result[0]     Result[1]    Result[2]         |
+    |   5 entries     3 entries    4 entries          |
+    |   or nil        or nil       or nil            |
+    |   (on error)    (on error)   (on error)        |
+    |                                                |
+    |   Errors are ABSORBED (graceful degradation)   |
+    +----------------------|------------------------+
+                           |
+                           | results = [Result[0], Result[1], Result[2]]
+                           v
+    +-----------------------------------------------+
+    |              Fusion Engine                      |
+    |              fusion.Engine.Fuse()               |
+    +----------------------|------------------------+
+                           |
+                           v
+    +-----------------------------------------------+
+    |   STAGE 1: Collect & Normalize                 |
+    |                                                |
+    |   Input: 3 result sets (5 + 3 + 4 = 12)       |
+    |                                                |
+    |   1a. Gather all entries into one list          |
+    |       all = [e1, e2, ... e12]                  |
+    |                                                |
+    |   1b. Find max relevance across all entries    |
+    |       maxScore = max(e.Relevance for e in all) |
+    |                                                |
+    |   1c. Normalize each entry                     |
+    |       e.Relevance = e.Relevance / maxScore     |
+    |       Result: all scores now in [0, 1]         |
+    +----------------------|------------------------+
+                           |
+                           | 12 normalized entries
+                           v
+    +-----------------------------------------------+
+    |   STAGE 2: Deduplication                       |
+    |                                                |
+    |   For each entry pair (i, j):                  |
+    |                                                |
+    |   Both have embeddings?                        |
+    |       YES --> sim = cosine(emb_i, emb_j)       |
+    |       NO  --> sim = jaccard(tokens_i, tokens_j)|
+    |                                                |
+    |   sim >= 0.92?                                 |
+    |       YES --> DUPLICATE                        |
+    |               Keep entry with higher confidence|
+    |               Discard the other                |
+    |       NO  --> UNIQUE, keep both                |
+    |                                                |
+    |   Example:                                     |
+    |   e3 (Mem0, conf=0.85) ~ e7 (Letta, conf=0.90)|
+    |   sim = 0.95 >= 0.92 --> keep e7               |
+    |                                                |
+    |   Result: 12 entries --> 9 unique entries       |
+    +----------------------|------------------------+
+                           |
+                           | 9 deduplicated entries
+                           v
+    +-----------------------------------------------+
+    |   STAGE 3: Cross-Source Re-Ranking             |
+    |                                                |
+    |   For each entry, compute final score:         |
+    |                                                |
+    |   score = relevance    * 0.40                  |
+    |         + recencyScore * 0.25                  |
+    |         + sourceScore  * 0.20                  |
+    |         + typeScore    * 0.15                  |
+    |                                                |
+    |   Example entry:                               |
+    |     relevance = 0.85 (from Stage 1)            |
+    |     recency   = 0.98 (created 2 hours ago)     |
+    |     source    = 0.95 (from Letta)              |
+    |     type      = 0.85 (fact, no filter)         |
+    |                                                |
+    |     score = 0.85*0.40 + 0.98*0.25             |
+    |           + 0.95*0.20 + 0.85*0.15             |
+    |           = 0.340 + 0.245 + 0.190 + 0.128     |
+    |           = 0.903                              |
+    |                                                |
+    |   Sort all entries by score DESC               |
+    |                                                |
+    |   Apply TopK = 10                              |
+    |   (9 entries < 10, so keep all)                |
+    +----------------------|------------------------+
+                           |
+                           v
+    +-----------------------------------------------+
+    |   Build SearchResult                           |
+    |                                                |
+    |   SearchResult {                               |
+    |       Entries:  [9 ranked MemoryEntries]       |
+    |       Total:    9                              |
+    |       Duration: sum of all backend durations   |
+    |       Sources:  [mem0, cognee, letta]          |
+    |   }                                            |
+    +----------------------|------------------------+
+                           |
+                           v
+                     Return to Caller
+
+
+============================
+  GET PATH (by ID)
+============================
+
+    Caller
+        |
+        | id = "abc-123"
+        v
+    +-----------------------------------------------+
+    |     UnifiedMemoryProvider.Get(ctx, id)          |
+    |                                                |
+    |   Collect all registered providers             |
+    |                                                |
+    |   for _, provider := range providers:          |
+    |       entry, err := provider.Get(ctx, id)      |
+    |       if err == nil && entry != nil:           |
+    |           return entry, nil                    |
+    |                                                |
+    |   (tries Mem0, then Cognee, then Letta, etc.)  |
+    |                                                |
+    |   None found --> return error "not found"      |
+    +-----------------------------------------------+
+
+
+============================
+  DELETE PATH
+============================
+
+    Caller
+        |
+        | id = "abc-123"
+        v
+    +-----------------------------------------------+
+    |    UnifiedMemoryProvider.Delete(ctx, id)        |
+    |                                                |
+    |   Broadcast delete to ALL providers            |
+    |                                                |
+    |   for _, provider := range providers:          |
+    |       provider.Delete(ctx, id)                 |
+    |       (track last error)                       |
+    |                                                |
+    |   Any succeeded --> return nil                 |
+    |   All failed --> return last error              |
+    +-----------------------------------------------+
+
+
+============================
+  HISTORY PATH
+============================
+
+    Caller
+        |
+        | userID = "user-123", limit = 20
+        v
+    +-----------------------------------------------+
+    |   UnifiedMemoryProvider.GetHistory()            |
+    |                                                |
+    |   Parallel fetch from ALL providers            |
+    |   (errgroup, graceful degradation)             |
+    |                                                |
+    |   Merge all results                            |
+    |   Sort by CreatedAt DESC (newest first)        |
+    |   Trim to limit                                |
+    +-----------------------------------------------+
+
+
+============================
+  ADAPTER PATH
+  (digital.vasic.memory bridge)
+============================
+
+    MemoryStore.Add(Memory)
+        |
+        v
+    moduleMemoryToEntry(Memory)
+        |
+        | Converts:
+        |   Memory.Content   --> MemoryEntry.Content
+        |   Memory.Score     --> MemoryEntry.Relevance
+        |   Memory.Embedding --> MemoryEntry.Embedding
+        |   Memory.Scope     --> MemoryEntry.Metadata["scope"]
+        |   Memory.Metadata  --> MemoryEntry.Metadata
+        |
+        v
+    UnifiedMemoryProvider.Add(MemoryEntry)
+        |
+        v
+    (standard write path above)
+
+
+    MemoryStore.Search(query, opts)
+        |
+        v
+    Build SearchRequest from SearchOptions
+        |
+        | opts.TopK     --> req.TopK
+        | opts.MinScore  --> req.MinScore
+        | opts.Scope     --> req.Filter["scope"]
+        | opts.TimeRange --> req.TimeRange
+        |
+        v
+    UnifiedMemoryProvider.Search(SearchRequest)
+        |
+        v
+    (standard read path above)
+        |
+        v
+    entryToModuleMemory(MemoryEntry) [for each result]
+        |
+        | Converts:
+        |   MemoryEntry.Content    --> Memory.Content
+        |   MemoryEntry.Relevance  --> Memory.Score
+        |   MemoryEntry.Embedding  --> Memory.Embedding
+        |   MemoryEntry.Metadata   --> Memory.Metadata
+        |   + adds helix_source, helix_type, helix_confidence
+        |
+        v
+    Return []*Memory to caller
+
+================================================================================
