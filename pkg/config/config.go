@@ -1,5 +1,8 @@
 // Package config provides configuration management for HelixMemory.
 // Supports both local container deployment and cloud API modes.
+//
+// IMPORTANT: Cognee requires a paid subscription for cloud access.
+// If COGNEE_API_KEY is not set, local container will be used automatically.
 package config
 
 import (
@@ -124,25 +127,34 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid mode: %s (must be 'local' or 'cloud')", c.Mode)
 	}
 
-	// In cloud mode, API keys are required
-	if c.Mode == "cloud" {
-		if c.CogneeAPIKey == "" && c.Mem0APIKey == "" && c.LettaAPIKey == "" {
-			return fmt.Errorf("cloud mode requires at least one API key (COGNEE_API_KEY, MEM0_API_KEY, or LETTA_API_KEY)")
+	// In cloud mode, at least Mem0 or Letta API key should be provided
+	// Cognee is optional since it requires paid subscription
+	if c.Mode == "cloud" && c.Mem0APIKey == "" && c.LettaAPIKey == "" {
+		// This is a warning, not an error - user might want to use Cognee only
+		// But since Cognee is paid, we should warn
+		if c.CogneeAPIKey == "" {
+			// No API keys at all - this is a problem
+			return fmt.Errorf("cloud mode requires at least one API key (MEM0_API_KEY or LETTA_API_KEY). " +
+				"Note: COGNEE_API_KEY requires paid subscription")
 		}
 	}
 
 	return nil
 }
 
-// GetCogneeEndpoint returns the appropriate Cognee endpoint based on mode.
+// GetCogneeEndpoint returns the appropriate Cognee endpoint.
+// IMPORTANT: If COGNEE_API_KEY is empty, local container endpoint is used
+// even if Mode is "cloud", because Cognee requires paid subscription.
 func (c *Config) GetCogneeEndpoint() string {
-	if c.Mode == "cloud" && c.CogneeAPIKey != "" {
-		return c.CogneeCloudEndpoint
+	// Cognee requires paid subscription - use local if no API key
+	if c.CogneeAPIKey == "" {
+		return c.CogneeEndpoint
 	}
-	return c.CogneeEndpoint
+	// Has API key - use cloud endpoint
+	return c.CogneeCloudEndpoint
 }
 
-// GetMem0Endpoint returns the appropriate Mem0 endpoint based on mode.
+// GetMem0Endpoint returns the appropriate Mem0 endpoint.
 func (c *Config) GetMem0Endpoint() string {
 	if c.Mode == "cloud" && c.Mem0APIKey != "" {
 		return c.Mem0CloudEndpoint
@@ -150,7 +162,7 @@ func (c *Config) GetMem0Endpoint() string {
 	return c.Mem0Endpoint
 }
 
-// GetLettaEndpoint returns the appropriate Letta endpoint based on mode.
+// GetLettaEndpoint returns the appropriate Letta endpoint.
 func (c *Config) GetLettaEndpoint() string {
 	if c.Mode == "cloud" && c.LettaAPIKey != "" {
 		return c.LettaCloudEndpoint
@@ -163,19 +175,63 @@ func (c *Config) IsCloudMode() bool {
 	return c.Mode == "cloud"
 }
 
-// HasCognee returns true if Cognee is configured.
+// UseCloudCognee returns true if Cognee cloud should be used.
+// This requires both cloud mode AND a valid API key.
+func (c *Config) UseCloudCognee() bool {
+	return c.Mode == "cloud" && c.CogneeAPIKey != ""
+}
+
+// UseCloudMem0 returns true if Mem0 cloud should be used.
+func (c *Config) UseCloudMem0() bool {
+	return c.Mode == "cloud" && c.Mem0APIKey != ""
+}
+
+// UseCloudLetta returns true if Letta cloud should be used.
+func (c *Config) UseCloudLetta() bool {
+	return c.Mode == "cloud" && c.LettaAPIKey != ""
+}
+
+// HasCognee returns true if Cognee is available (local or cloud with key).
 func (c *Config) HasCognee() bool {
-	return c.CogneeAPIKey != "" || c.Mode == "local"
+	// Cognee is always available in local mode (container)
+	// In cloud mode, requires API key
+	return c.Mode == "local" || c.CogneeAPIKey != ""
 }
 
-// HasMem0 returns true if Mem0 is configured.
+// HasMem0 returns true if Mem0 is available (local or cloud with key).
 func (c *Config) HasMem0() bool {
-	return c.Mem0APIKey != "" || c.Mode == "local"
+	return c.Mode == "local" || c.Mem0APIKey != ""
 }
 
-// HasLetta returns true if Letta is configured.
+// HasLetta returns true if Letta is available (local or cloud with key).
 func (c *Config) HasLetta() bool {
-	return c.LettaAPIKey != "" || c.Mode == "local"
+	return c.Mode == "local" || c.LettaAPIKey != ""
+}
+
+// GetActiveServices returns a list of active memory services.
+func (c *Config) GetActiveServices() []string {
+	services := []string{}
+	if c.HasCognee() {
+		services = append(services, "cognee")
+	}
+	if c.HasMem0() {
+		services = append(services, "mem0")
+	}
+	if c.HasLetta() {
+		services = append(services, "letta")
+	}
+	return services
+}
+
+// IsHybridMode returns true if using a mix of local and cloud services.
+func (c *Config) IsHybridMode() bool {
+	if c.Mode != "cloud" {
+		return false
+	}
+	// Check if we have a mix
+	hasCloud := c.CogneeAPIKey != "" || c.Mem0APIKey != "" || c.LettaAPIKey != ""
+	needsLocal := c.CogneeAPIKey == "" // Cognee defaults to local
+	return hasCloud && needsLocal
 }
 
 // Helper functions
