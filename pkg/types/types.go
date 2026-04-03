@@ -24,6 +24,8 @@ const (
 	MemoryTypeEpisodic MemoryType = "episodic"
 	// MemoryTypeProcedural represents learned workflows and procedures.
 	MemoryTypeProcedural MemoryType = "procedural"
+	// MemoryTypeSemantic represents general semantic knowledge.
+	MemoryTypeSemantic MemoryType = "semantic"
 )
 
 // MemorySource identifies which backend produced or owns a memory.
@@ -44,23 +46,23 @@ const (
 
 // MemoryEntry represents a unified memory record from any backend.
 type MemoryEntry struct {
-	ID         string                 `json:"id"`
-	Content    string                 `json:"content"`
-	Type       MemoryType             `json:"type"`
-	Source     MemorySource           `json:"source"`
-	Confidence float64               `json:"confidence"`
-	Relevance  float64               `json:"relevance"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	Embedding  []float32              `json:"embedding,omitempty"`
-	UserID     string                 `json:"user_id,omitempty"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	AgentID    string                 `json:"agent_id,omitempty"`
-	Tags       []string               `json:"tags,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
-	UpdatedAt  time.Time              `json:"updated_at"`
-	ExpiresAt  *time.Time             `json:"expires_at,omitempty"`
-	AccessCount int                   `json:"access_count"`
-	LastAccess  time.Time             `json:"last_access"`
+	ID          string                 `json:"id"`
+	Content     string                 `json:"content"`
+	Type        MemoryType             `json:"type"`
+	Source      MemorySource           `json:"source"`
+	Confidence  float64                `json:"confidence"`
+	Relevance   float64                `json:"relevance"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Embedding   []float32              `json:"embedding,omitempty"`
+	UserID      string                 `json:"user_id,omitempty"`
+	SessionID   string                 `json:"session_id,omitempty"`
+	AgentID     string                 `json:"agent_id,omitempty"`
+	Tags        []string               `json:"tags,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+	AccessCount int                    `json:"access_count"`
+	LastAccess  time.Time              `json:"last_access"`
 }
 
 // CoreMemoryBlock represents an editable in-context memory block (Letta-style).
@@ -97,6 +99,29 @@ type SearchResult struct {
 	Total    int            `json:"total"`
 	Duration time.Duration  `json:"duration"`
 	Sources  []MemorySource `json:"sources_queried"`
+}
+
+// FusionResult contains fused results from multiple memory systems.
+type FusionResult struct {
+	Entries     []*MemoryEntry         `json:"entries"`
+	Total       int                    `json:"total"`
+	Duration    time.Duration          `json:"duration"`
+	Query       string                 `json:"query"`
+	Sources     []MemorySource         `json:"sources"`
+	SourceStats map[MemorySource]int   `json:"source_stats"`
+	FusionScore float64                `json:"fusion_score"`
+}
+
+// FusionStats provides statistics about the fusion engine.
+type FusionStats struct {
+	CogneeHealthy bool                 `json:"cognee_healthy"`
+	Mem0Healthy   bool                 `json:"mem0_healthy"`
+	LettaHealthy  bool                 `json:"letta_healthy"`
+	CogneeCount   int64                `json:"cognee_count"`
+	Mem0Count     int64                `json:"mem0_count"`
+	LettaCount    int64                `json:"letta_count"`
+	Timestamp     time.Time            `json:"timestamp"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // MemoryProvider defines the interface that all memory backends implement.
@@ -151,12 +176,12 @@ type ConsolidationProvider interface {
 
 // ConsolidationStatus reports on sleep-time compute progress.
 type ConsolidationStatus struct {
-	Running          bool      `json:"running"`
-	LastRun          time.Time `json:"last_run"`
-	MemoriesProcessed int     `json:"memories_processed"`
-	Deduplicated     int       `json:"deduplicated"`
-	Consolidated     int       `json:"consolidated"`
-	Duration         time.Duration `json:"duration"`
+	Running           bool          `json:"running"`
+	LastRun           time.Time     `json:"last_run"`
+	MemoriesProcessed int           `json:"memories_processed"`
+	Deduplicated      int           `json:"deduplicated"`
+	Consolidated      int           `json:"consolidated"`
+	Duration          time.Duration `json:"duration"`
 }
 
 // TemporalProvider extends MemoryProvider with time-aware queries.

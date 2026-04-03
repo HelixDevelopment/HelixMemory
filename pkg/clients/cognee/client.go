@@ -1,4 +1,5 @@
 // Package cognee provides the Cognee backend client for HelixMemory.
+// Updated for Cognee v1 API (github.com/topoteretes/cognee)
 // Cognee excels at semantic knowledge graphs via ECL (Extract-Cognify-Load)
 // pipelines with 38+ data source connectors and graph-based retrieval.
 package cognee
@@ -18,9 +19,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// Client communicates with the Cognee REST API.
+// Client communicates with the Cognee REST API v1.
 type Client struct {
 	endpoint   string
+	apiKey     string
 	httpClient *http.Client
 	breaker    *types.CircuitBreaker
 }
@@ -29,6 +31,7 @@ type Client struct {
 func NewClient(cfg *config.Config) *Client {
 	return &Client{
 		endpoint: cfg.CogneeEndpoint,
+		apiKey:   cfg.CogneeAPIKey,
 		httpClient: &http.Client{
 			Timeout: cfg.RequestTimeout,
 		},
@@ -44,20 +47,28 @@ func (c *Client) Name() types.MemorySource {
 	return types.SourceCognee
 }
 
-// cogneeAddRequest is the request for adding data to Cognee.
+// Request/Response types for Cognee v1 API
+
 type cogneeAddRequest struct {
-	Data     string `json:"data"`
-	DataType string `json:"data_type"`
+	Data       string            `json:"data"`
+	DataType   string            `json:"data_type"`
+	DatasetID  string            `json:"dataset_id,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// cogneeSearchRequest is the request for searching Cognee.
+type cogneeAddResponse struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
 type cogneeSearchRequest struct {
 	Query      string `json:"query"`
 	SearchType string `json:"search_type"`
 	TopK       int    `json:"top_k,omitempty"`
+	DatasetIDs []string `json:"dataset_ids,omitempty"`
 }
 
-// cogneeSearchResult represents a single Cognee search result.
 type cogneeSearchResult struct {
 	ID          string                 `json:"id"`
 	Content     string                 `json:"content"`
@@ -65,31 +76,55 @@ type cogneeSearchResult struct {
 	NodeType    string                 `json:"node_type,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 	Connections []cogneeConnection     `json:"connections,omitempty"`
+	DatasetID   string                 `json:"dataset_id,omitempty"`
 }
 
-// cogneeConnection represents a graph connection.
 type cogneeConnection struct {
 	TargetID     string  `json:"target_id"`
 	RelationType string  `json:"relation_type"`
 	Weight       float64 `json:"weight"`
 }
 
-// cogneeCognifyResponse is the response from the cognify endpoint.
-type cogneeCognifyResponse struct {
-	Status string `json:"status"`
-	TaskID string `json:"task_id,omitempty"`
+type cogneeCognifyRequest struct {
+	DatasetID   string   `json:"dataset_id,omitempty"`
+	DataSources []string `json:"data_sources,omitempty"`
 }
 
-// Add stores content via Cognee's ECL pipeline.
+type cogneeCognifyResponse struct {
+	Status  string `json:"status"`
+	TaskID  string `json:"task_id,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type cogneeHealthResponse struct {
+	Status    string `json:"status"`
+	Version   string `json:"version,omitempty"`
+	Timestamp string `json:"timestamp,omitempty"`
+}
+
+type cogneeDataset struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Add stores content via Cognee's ECL pipeline (v1 API).
 func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
 	if !c.breaker.Allow() {
 		return fmt.Errorf("cognee: circuit breaker open")
 	}
 
-	// Step 1: Add data
 	addReq := &cogneeAddRequest{
 		Data:     entry.Content,
 		DataType: "text",
+		Metadata: entry.Metadata,
+	}
+
+	// Use dataset from metadata if available
+	if datasetID, ok := entry.Metadata["cognee_dataset_id"].(string); ok {
+		addReq.DatasetID = datasetID
 	}
 
 	body, err := json.Marshal(addReq)
@@ -106,6 +141,9 @@ func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
 		return fmt.Errorf("cognee: create add request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -120,17 +158,31 @@ func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
 		return fmt.Errorf("cognee: add API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// Step 2: Trigger cognify (ECL pipeline)
-	cognifyReq, err := http.NewRequestWithContext(
-		ctx, http.MethodPost,
-		c.endpoint+"/api/v1/cognify",
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("cognee: create cognify request: %w", err)
+	var addResp cogneeAddResponse
+	if err := json.NewDecoder(resp.Body).Decode(&addResp); err != nil {
+		// Non-fatal: data was added but response parsing failed
+		c.breaker.RecordSuccess()
+		return nil
 	}
 
-	cognifyResp, err := c.httpClient.Do(cognifyReq)
+	// Trigger cognify for the data
+	cognifyReq := &cogneeCognifyRequest{}
+	if addReq.DatasetID != "" {
+		cognifyReq.DatasetID = addReq.DatasetID
+	}
+
+	cognifyBody, _ := json.Marshal(cognifyReq)
+	cognifyHTTPReq, _ := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/api/v1/cognify",
+		bytes.NewReader(cognifyBody),
+	)
+	cognifyHTTPReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		cognifyHTTPReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	cognifyResp, err := c.httpClient.Do(cognifyHTTPReq)
 	if err != nil {
 		// Cognify failure is non-fatal; data was added
 		c.breaker.RecordSuccess()
@@ -142,7 +194,7 @@ func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
 	return nil
 }
 
-// Search returns memories matching the query using Cognee's graph search.
+// Search returns memories matching the query using Cognee's graph search (v1 API).
 func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.SearchResult, error) {
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("cognee: circuit breaker open")
@@ -166,6 +218,13 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 		searchReq.TopK = 10
 	}
 
+	// Add dataset filter if specified
+	if req.Filter != nil {
+		if dsID, ok := req.Filter["dataset_id"].(string); ok {
+			searchReq.DatasetIDs = []string{dsID}
+		}
+	}
+
 	body, err := json.Marshal(searchReq)
 	if err != nil {
 		return nil, fmt.Errorf("cognee: marshal search: %w", err)
@@ -180,6 +239,9 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 		return nil, fmt.Errorf("cognee: create search request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -214,7 +276,7 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 	}, nil
 }
 
-// Get retrieves a memory by ID (via search).
+// Get retrieves a memory by ID (v1 API).
 func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error) {
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("cognee: circuit breaker open")
@@ -227,6 +289,9 @@ func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error)
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cognee: create get request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -264,7 +329,7 @@ func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
 	return c.Add(ctx, entry)
 }
 
-// Delete removes a memory by ID.
+// Delete removes a memory by ID (v1 API).
 func (c *Client) Delete(ctx context.Context, id string) error {
 	if !c.breaker.Allow() {
 		return fmt.Errorf("cognee: circuit breaker open")
@@ -272,11 +337,14 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodDelete,
-		c.endpoint+"/api/v1/data/"+id,
+		c.endpoint+"/api/v1/delete/data/"+id,
 		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("cognee: create delete request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -310,7 +378,7 @@ func (c *Client) GetHistory(ctx context.Context, userID string, limit int) ([]*t
 	return result.Entries, nil
 }
 
-// Health checks if Cognee is available.
+// Health checks if Cognee is available (v1 API).
 func (c *Client) Health(ctx context.Context) error {
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodGet,
@@ -319,6 +387,9 @@ func (c *Client) Health(ctx context.Context) error {
 	)
 	if err != nil {
 		return fmt.Errorf("cognee: create health request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -331,7 +402,106 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("cognee: unhealthy (status %d)", resp.StatusCode)
 	}
 
+	var healthResp cogneeHealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&healthResp); err != nil {
+		return fmt.Errorf("cognee: decode health response: %w", err)
+	}
+
+	if healthResp.Status != "healthy" && healthResp.Status != "ok" {
+		return fmt.Errorf("cognee: unhealthy (status: %s)", healthResp.Status)
+	}
+
 	return nil
+}
+
+// CreateDataset creates a new dataset in Cognee (v1 API feature).
+func (c *Client) CreateDataset(ctx context.Context, name, description string) (*cogneeDataset, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("cognee: circuit breaker open")
+	}
+
+	reqBody := map[string]string{
+		"name":        name,
+		"description": description,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("cognee: marshal dataset request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/api/v1/datasets",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cognee: create dataset request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("cognee: dataset request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("cognee: dataset API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var dataset cogneeDataset
+	if err := json.NewDecoder(resp.Body).Decode(&dataset); err != nil {
+		return nil, fmt.Errorf("cognee: decode dataset response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &dataset, nil
+}
+
+// ListDatasets returns all datasets (v1 API feature).
+func (c *Client) ListDatasets(ctx context.Context) ([]cogneeDataset, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("cognee: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/api/v1/datasets",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cognee: create list datasets request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("cognee: list datasets request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("cognee: list datasets API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var datasets []cogneeDataset
+	if err := json.NewDecoder(resp.Body).Decode(&datasets); err != nil {
+		return nil, fmt.Errorf("cognee: decode datasets response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return datasets, nil
 }
 
 // toMemoryEntry converts a Cognee search result to a unified MemoryEntry.
@@ -357,6 +527,9 @@ func (c *Client) toMemoryEntry(r *cogneeSearchResult) *types.MemoryEntry {
 	}
 	if r.NodeType != "" {
 		entry.Metadata["cognee_node_type"] = r.NodeType
+	}
+	if r.DatasetID != "" {
+		entry.Metadata["cognee_dataset_id"] = r.DatasetID
 	}
 	if len(r.Connections) > 0 {
 		connData := make([]map[string]interface{}, len(r.Connections))

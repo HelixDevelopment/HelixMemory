@@ -1,6 +1,7 @@
 // Package mem0 provides the Mem0 backend client for HelixMemory.
-// Mem0 excels at dynamic fact extraction and preference management,
-// delivering 26%+ accuracy improvement over baseline OpenAI memory.
+// Mem0 is an advanced memory layer for AI applications with user-specific,
+// agent-specific, and session-based memory management.
+// API Reference: https://docs.mem0.ai/api-reference
 package mem0
 
 import (
@@ -21,14 +22,18 @@ import (
 // Client communicates with the Mem0 REST API.
 type Client struct {
 	endpoint   string
+	apiKey     string
 	httpClient *http.Client
 	breaker    *types.CircuitBreaker
+	orgID      string
+	projectID  string
 }
 
 // NewClient creates a Mem0 client from configuration.
 func NewClient(cfg *config.Config) *Client {
 	return &Client{
 		endpoint: cfg.Mem0Endpoint,
+		apiKey:   cfg.Mem0APIKey,
 		httpClient: &http.Client{
 			Timeout: cfg.RequestTimeout,
 		},
@@ -36,6 +41,8 @@ func NewClient(cfg *config.Config) *Client {
 			cfg.CircuitBreakerThreshold,
 			cfg.CircuitBreakerTimeout,
 		),
+		orgID:     cfg.Mem0OrgID,
+		projectID: cfg.Mem0ProjectID,
 	}
 }
 
@@ -44,63 +51,119 @@ func (c *Client) Name() types.MemorySource {
 	return types.SourceMem0
 }
 
-// mem0Memory is the Mem0 API memory format.
-type mem0Memory struct {
-	ID       string                 `json:"id,omitempty"`
-	Memory   string                 `json:"memory"`
-	UserID   string                 `json:"user_id,omitempty"`
-	AgentID  string                 `json:"agent_id,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	Hash     string                 `json:"hash,omitempty"`
-	Score    float64                `json:"score,omitempty"`
-	CreatedAt string               `json:"created_at,omitempty"`
-	UpdatedAt string               `json:"updated_at,omitempty"`
+// ==================== API Request/Response Types ====================
+
+// Memory represents a stored memory in Mem0
+type Memory struct {
+	ID            string                 `json:"id"`
+	Memory        string                 `json:"memory"`
+	UserID        string                 `json:"user_id,omitempty"`
+	AgentID       string                 `json:"agent_id,omitempty"`
+	SessionID     string                 `json:"session_id,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Categories    []string               `json:"categories,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	Score         float64                `json:"score,omitempty"`
 }
 
-// mem0AddRequest is the request body for adding memories.
-type mem0AddRequest struct {
-	Messages []mem0Message          `json:"messages"`
-	UserID   string                 `json:"user_id,omitempty"`
-	AgentID  string                 `json:"agent_id,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+// AddMemoryRequest represents a request to add a memory
+type AddMemoryRequest struct {
+	Messages   []Message              `json:"messages"`
+	UserID     string                 `json:"user_id,omitempty"`
+	AgentID    string                 `json:"agent_id,omitempty"`
+	SessionID  string                 `json:"session_id,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Categories []string               `json:"categories,omitempty"`
+	Immutable  bool                   `json:"immutable,omitempty"`
 }
 
-// mem0Message represents a message in Mem0 format.
-type mem0Message struct {
+// Message represents a conversation message
+type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// mem0SearchRequest is the request body for searching memories.
-type mem0SearchRequest struct {
-	Query  string `json:"query"`
-	UserID string `json:"user_id,omitempty"`
-	TopK   int    `json:"top_k,omitempty"`
+// UpdateMemoryRequest represents a request to update a memory
+type UpdateMemoryRequest struct {
+	MemoryID string `json:"memory_id"`
+	Memory   string `json:"memory"`
 }
 
-// mem0SearchResponse is the response from memory search.
-type mem0SearchResponse struct {
-	Results []mem0Memory `json:"results"`
+// SearchMemoryRequest represents a request to search memories
+type SearchMemoryRequest struct {
+	Query     string                 `json:"query"`
+	UserID    string                 `json:"user_id,omitempty"`
+	AgentID   string                 `json:"agent_id,omitempty"`
+	SessionID string                 `json:"session_id,omitempty"`
+	Filters   map[string]interface{} `json:"filters,omitempty"`
+	TopK      int                    `json:"top_k,omitempty"`
 }
 
-// Add stores a memory via Mem0's extraction pipeline.
+// MemoryHistory represents the history of a memory
+type MemoryHistory struct {
+	ID        string    `json:"id"`
+	MemoryID  string    `json:"memory_id"`
+	OldValue  string    `json:"old_value"`
+	NewValue  string    `json:"new_value"`
+	Action    string    `json:"action"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// User represents a Mem0 user
+type User struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Agent represents a Mem0 agent
+type Agent struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Config    map[string]interface{} `json:"config,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Webhook represents a Mem0 webhook
+type Webhook struct {
+	ID        string    `json:"id"`
+	URL       string    `json:"url"`
+	Name      string    `json:"name"`
+	Events    []string  `json:"events"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ==================== Core Memory Operations ====================
+
+// Add stores a new memory in Mem0.
 func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
 	if !c.breaker.Allow() {
 		return fmt.Errorf("mem0: circuit breaker open")
 	}
 
-	req := &mem0AddRequest{
-		Messages: []mem0Message{
+	req := &AddMemoryRequest{
+		Messages: []Message{
 			{Role: "user", Content: entry.Content},
 		},
-		UserID:   entry.UserID,
-		AgentID:  entry.AgentID,
-		Metadata: entry.Metadata,
+		UserID:    entry.UserID,
+		AgentID:   entry.AgentID,
+		SessionID: entry.SessionID,
+		Metadata:  entry.Metadata,
+	}
+
+	// Extract categories from metadata
+	if cats, ok := entry.Metadata["categories"].([]string); ok {
+		req.Categories = cats
 	}
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("mem0: marshal request: %w", err)
+		return fmt.Errorf("mem0: marshal add request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(
@@ -109,90 +172,42 @@ func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return fmt.Errorf("mem0: create request: %w", err)
+		return fmt.Errorf("mem0: create add request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		c.breaker.RecordFailure()
-		return fmt.Errorf("mem0: request failed: %w", err)
+		return fmt.Errorf("mem0: add request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
 		c.breaker.RecordFailure()
-		return fmt.Errorf("mem0: API error %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("mem0: add API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	c.breaker.RecordSuccess()
 	return nil
 }
 
-// Search returns memories matching the query.
-func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.SearchResult, error) {
+// AddBatch stores multiple memories in a single request.
+func (c *Client) AddBatch(ctx context.Context, entries []*types.MemoryEntry) error {
 	if !c.breaker.Allow() {
-		return nil, fmt.Errorf("mem0: circuit breaker open")
+		return fmt.Errorf("mem0: circuit breaker open")
 	}
 
-	start := time.Now()
-
-	searchReq := &mem0SearchRequest{
-		Query:  req.Query,
-		UserID: req.UserID,
-		TopK:   req.TopK,
-	}
-	if searchReq.TopK <= 0 {
-		searchReq.TopK = 10
+	// Mem0 batch API uses the same endpoint with multiple messages
+	for _, entry := range entries {
+		if err := c.Add(ctx, entry); err != nil {
+			return fmt.Errorf("mem0: batch add failed for entry %s: %w", entry.ID, err)
+		}
 	}
 
-	body, err := json.Marshal(searchReq)
-	if err != nil {
-		return nil, fmt.Errorf("mem0: marshal search: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodPost,
-		c.endpoint+"/v1/memories/search/",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("mem0: create search request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("mem0: search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("mem0: search API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var searchResp mem0SearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, fmt.Errorf("mem0: decode search response: %w", err)
-	}
-
-	c.breaker.RecordSuccess()
-
-	entries := make([]*types.MemoryEntry, 0, len(searchResp.Results))
-	for _, m := range searchResp.Results {
-		entries = append(entries, c.toMemoryEntry(&m))
-	}
-
-	return &types.SearchResult{
-		Entries:  entries,
-		Total:    len(entries),
-		Duration: time.Since(start),
-		Sources:  []types.MemorySource{types.SourceMem0},
-	}, nil
+	return nil
 }
 
 // Get retrieves a memory by ID.
@@ -209,6 +224,7 @@ func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error)
 	if err != nil {
 		return nil, fmt.Errorf("mem0: create get request: %w", err)
 	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -228,13 +244,13 @@ func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error)
 		return nil, fmt.Errorf("mem0: get API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var m mem0Memory
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+	var memory Memory
+	if err := json.NewDecoder(resp.Body).Decode(&memory); err != nil {
 		return nil, fmt.Errorf("mem0: decode get response: %w", err)
 	}
 
 	c.breaker.RecordSuccess()
-	return c.toMemoryEntry(&m), nil
+	return c.toMemoryEntry(&memory), nil
 }
 
 // Update modifies an existing memory.
@@ -243,11 +259,14 @@ func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
 		return fmt.Errorf("mem0: circuit breaker open")
 	}
 
-	body, err := json.Marshal(map[string]string{
-		"memory": entry.Content,
-	})
+	req := &UpdateMemoryRequest{
+		MemoryID: entry.ID,
+		Memory:   entry.Content,
+	}
+
+	body, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("mem0: marshal update: %w", err)
+		return fmt.Errorf("mem0: marshal update request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(
@@ -259,6 +278,7 @@ func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
 		return fmt.Errorf("mem0: create update request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -291,6 +311,7 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("mem0: create delete request: %w", err)
 	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -299,7 +320,7 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
 		respBody, _ := io.ReadAll(resp.Body)
 		c.breaker.RecordFailure()
 		return fmt.Errorf("mem0: delete API error %d: %s", resp.StatusCode, string(respBody))
@@ -309,17 +330,127 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetHistory returns memories for a user.
+// DeleteAll removes all memories for a specific entity.
+func (c *Client) DeleteAll(ctx context.Context, userID, agentID string) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	url := c.endpoint + "/v1/memories/"
+	if userID != "" {
+		url += "?user_id=" + userID
+	} else if agentID != "" {
+		url += "?agent_id=" + agentID
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("mem0: create delete all request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete all request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete all API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.breaker.RecordSuccess()
+	return nil
+}
+
+// Search finds memories matching the query.
+func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.SearchResult, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	start := time.Now()
+
+	searchReq := &SearchMemoryRequest{
+		Query:     req.Query,
+		UserID:    req.UserID,
+		AgentID:   req.AgentID,
+		SessionID: req.SessionID,
+		TopK:      req.TopK,
+		Filters:   req.Filter,
+	}
+	if searchReq.TopK <= 0 {
+		searchReq.TopK = 10
+	}
+
+	body, err := json.Marshal(searchReq)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: marshal search request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/memories/search/",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create search request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: search API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var memories []Memory
+	if err := json.NewDecoder(resp.Body).Decode(&memories); err != nil {
+		return nil, fmt.Errorf("mem0: decode search response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+
+	entries := make([]*types.MemoryEntry, 0, len(memories))
+	for _, m := range memories {
+		entries = append(entries, c.toMemoryEntry(&m))
+	}
+
+	return &types.SearchResult{
+		Entries:  entries,
+		Total:    len(entries),
+		Duration: time.Since(start),
+		Sources:  []types.MemorySource{types.SourceMem0},
+	}, nil
+}
+
+// GetHistory retrieves all memories for a user.
 func (c *Client) GetHistory(ctx context.Context, userID string, limit int) ([]*types.MemoryEntry, error) {
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("mem0: circuit breaker open")
 	}
 
-	url := fmt.Sprintf("%s/v1/memories/?user_id=%s&limit=%d", c.endpoint, userID, limit)
+	url := c.endpoint + "/v1/memories/?user_id=" + userID
+	if limit > 0 {
+		url += fmt.Sprintf("&limit=%d", limit)
+	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("mem0: create history request: %w", err)
 	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -334,7 +465,7 @@ func (c *Client) GetHistory(ctx context.Context, userID string, limit int) ([]*t
 		return nil, fmt.Errorf("mem0: history API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var memories []mem0Memory
+	var memories []Memory
 	if err := json.NewDecoder(resp.Body).Decode(&memories); err != nil {
 		return nil, fmt.Errorf("mem0: decode history response: %w", err)
 	}
@@ -345,19 +476,425 @@ func (c *Client) GetHistory(ctx context.Context, userID string, limit int) ([]*t
 	for _, m := range memories {
 		entries = append(entries, c.toMemoryEntry(&m))
 	}
+
 	return entries, nil
 }
+
+// GetMemoryHistory retrieves the edit history of a specific memory.
+func (c *Client) GetMemoryHistory(ctx context.Context, memoryID string) ([]MemoryHistory, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/memories/"+memoryID+"/history/",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create memory history request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: memory history request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: memory history API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var history []MemoryHistory
+	if err := json.NewDecoder(resp.Body).Decode(&history); err != nil {
+		return nil, fmt.Errorf("mem0: decode memory history response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return history, nil
+}
+
+// ==================== User Management ====================
+
+// CreateUser creates a new user.
+func (c *Client) CreateUser(ctx context.Context, name string, metadata map[string]interface{}) (*User, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	reqBody := map[string]interface{}{
+		"name":     name,
+		"metadata": metadata,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: marshal create user request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/users/",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create user request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: create user request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: create user API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var user User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, fmt.Errorf("mem0: decode create user response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &user, nil
+}
+
+// GetUser retrieves a user by ID.
+func (c *Client) GetUser(ctx context.Context, userID string) (*User, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/users/"+userID+"/",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create get user request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: get user request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: get user API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var user User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, fmt.Errorf("mem0: decode get user response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &user, nil
+}
+
+// DeleteUser removes a user and all their memories.
+func (c *Client) DeleteUser(ctx context.Context, userID string) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodDelete,
+		c.endpoint+"/v1/users/"+userID+"/",
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("mem0: create delete user request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete user request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete user API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.breaker.RecordSuccess()
+	return nil
+}
+
+// ==================== Agent Management ====================
+
+// CreateAgent creates a new agent.
+func (c *Client) CreateAgent(ctx context.Context, name string, config map[string]interface{}) (*Agent, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	reqBody := map[string]interface{}{
+		"name":   name,
+		"config": config,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: marshal create agent request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/agents/",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create agent request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: create agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: create agent API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var agent Agent
+	if err := json.NewDecoder(resp.Body).Decode(&agent); err != nil {
+		return nil, fmt.Errorf("mem0: decode create agent response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &agent, nil
+}
+
+// GetAgent retrieves an agent by ID.
+func (c *Client) GetAgent(ctx context.Context, agentID string) (*Agent, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/agents/"+agentID+"/",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create get agent request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: get agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: get agent API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var agent Agent
+	if err := json.NewDecoder(resp.Body).Decode(&agent); err != nil {
+		return nil, fmt.Errorf("mem0: decode get agent response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &agent, nil
+}
+
+// DeleteAgent removes an agent and all their memories.
+func (c *Client) DeleteAgent(ctx context.Context, agentID string) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodDelete,
+		c.endpoint+"/v1/agents/"+agentID+"/",
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("mem0: create delete agent request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete agent API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.breaker.RecordSuccess()
+	return nil
+}
+
+// ==================== Webhook Management ====================
+
+// CreateWebhook creates a new webhook.
+func (c *Client) CreateWebhook(ctx context.Context, url, name string, events []string) (*Webhook, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	reqBody := map[string]interface{}{
+		"url":    url,
+		"name":   name,
+		"events": events,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: marshal create webhook request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/webhooks/",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create webhook request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: create webhook request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: create webhook API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var webhook Webhook
+	if err := json.NewDecoder(resp.Body).Decode(&webhook); err != nil {
+		return nil, fmt.Errorf("mem0: decode create webhook response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &webhook, nil
+}
+
+// GetWebhook retrieves a webhook by ID.
+func (c *Client) GetWebhook(ctx context.Context, webhookID string) (*Webhook, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/webhooks/"+webhookID+"/",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mem0: create get webhook request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: get webhook request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("mem0: get webhook API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var webhook Webhook
+	if err := json.NewDecoder(resp.Body).Decode(&webhook); err != nil {
+		return nil, fmt.Errorf("mem0: decode get webhook response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &webhook, nil
+}
+
+// DeleteWebhook removes a webhook.
+func (c *Client) DeleteWebhook(ctx context.Context, webhookID string) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("mem0: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodDelete,
+		c.endpoint+"/v1/webhooks/"+webhookID+"/",
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("mem0: create delete webhook request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete webhook request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("mem0: delete webhook API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.breaker.RecordSuccess()
+	return nil
+}
+
+// ==================== Health Check ====================
 
 // Health checks if Mem0 is available.
 func (c *Client) Health(ctx context.Context) error {
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodGet,
-		c.endpoint+"/health",
+		c.endpoint+"/v1/health/",
 		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("mem0: create health request: %w", err)
 	}
+	httpReq.Header.Set("Authorization", "Token "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -372,42 +909,35 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-// toMemoryEntry converts a Mem0 memory to a unified MemoryEntry.
-func (c *Client) toMemoryEntry(m *mem0Memory) *types.MemoryEntry {
+// ==================== Helper Functions ====================
+
+func (c *Client) toMemoryEntry(m *Memory) *types.MemoryEntry {
 	entry := &types.MemoryEntry{
 		ID:         m.ID,
 		Content:    m.Memory,
-		Type:       types.MemoryTypeFact,
-		Source:     types.SourceMem0,
-		Confidence: 0.85,
-		Relevance:  m.Score,
-		Metadata:   m.Metadata,
 		UserID:     m.UserID,
 		AgentID:    m.AgentID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		SessionID:  m.SessionID,
+		Type:       types.MemoryTypeSemantic,
+		Source:     types.SourceMem0,
+		Confidence: m.Score,
+		Relevance:  m.Score,
+		Metadata:   m.Metadata,
+		CreatedAt:  m.CreatedAt,
+		UpdatedAt:  m.UpdatedAt,
 	}
 
 	if entry.ID == "" {
 		entry.ID = uuid.New().String()
 	}
 
-	if m.CreatedAt != "" {
-		if t, err := time.Parse(time.RFC3339, m.CreatedAt); err == nil {
-			entry.CreatedAt = t
-		}
-	}
-	if m.UpdatedAt != "" {
-		if t, err := time.Parse(time.RFC3339, m.UpdatedAt); err == nil {
-			entry.UpdatedAt = t
-		}
-	}
-
 	if entry.Metadata == nil {
 		entry.Metadata = make(map[string]interface{})
 	}
-	if m.Hash != "" {
-		entry.Metadata["mem0_hash"] = m.Hash
+
+	// Add categories to metadata
+	if len(m.Categories) > 0 {
+		entry.Metadata["categories"] = m.Categories
 	}
 
 	return entry

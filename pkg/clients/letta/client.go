@@ -1,6 +1,8 @@
 // Package letta provides the Letta backend client for HelixMemory.
-// Letta is the "brain" — a stateful agent runtime with editable in-context
-// memory blocks, tool-calling, and sleep-time compute capabilities.
+// Letta is an agent memory system with support for persistent agent state,
+// tool execution, and multi-agent conversations.
+// API: https://docs.letta.com/api-reference
+// SDK: https://github.com/letta-ai/letta-code-sdk/
 package letta
 
 import (
@@ -9,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"time"
 
@@ -18,18 +21,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// Client communicates with the Letta server API.
+// Client communicates with the Letta REST API.
 type Client struct {
 	endpoint   string
+	apiKey     string
 	httpClient *http.Client
 	breaker    *types.CircuitBreaker
-	agentID    string
 }
 
 // NewClient creates a Letta client from configuration.
 func NewClient(cfg *config.Config) *Client {
 	return &Client{
 		endpoint: cfg.LettaEndpoint,
+		apiKey:   cfg.LettaAPIKey,
 		httpClient: &http.Client{
 			Timeout: cfg.RequestTimeout,
 		},
@@ -45,178 +49,619 @@ func (c *Client) Name() types.MemorySource {
 	return types.SourceLetta
 }
 
-// lettaAgent represents a Letta agent.
-type lettaAgent struct {
-	ID           string        `json:"id"`
+// ==================== API Request/Response Types ====================
+
+// Agent represents a Letta agent
+type Agent struct {
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description,omitempty"`
+	SystemPrompt   string                 `json:"system_prompt,omitempty"`
+	Model          string                 `json:"model"`
+	MemoryBlocks   []MemoryBlock          `json:"memory_blocks,omitempty"`
+	Tools          []Tool                 `json:"tools,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+}
+
+// MemoryBlock represents a memory block in Letta
+type MemoryBlock struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Label     string    `json:"label"`
+	Value     string    `json:"value"`
+	Limit     int       `json:"limit,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Tool represents a tool available to the agent
+type Tool struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	SourceType  string                 `json:"source_type"`
+	SourceCode  string                 `json:"source_code,omitempty"`
+	JSONSchema  map[string]interface{} `json:"json_schema,omitempty"`
+}
+
+// Message represents a message in a conversation
+type Message struct {
+	ID        string    `json:"id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	AgentID   string    `json:"agent_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// CreateAgentRequest represents a request to create an agent
+type CreateAgentRequest struct {
 	Name         string        `json:"name"`
 	Description  string        `json:"description,omitempty"`
-	MemoryBlocks []lettaBlock  `json:"memory_blocks,omitempty"`
-	CreatedAt    string        `json:"created_at,omitempty"`
+	SystemPrompt string        `json:"system_prompt,omitempty"`
+	Model        string        `json:"model"`
+	MemoryBlocks []MemoryBlock `json:"memory_blocks,omitempty"`
+	Tools        []Tool        `json:"tools,omitempty"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// lettaBlock represents a Letta memory block.
-type lettaBlock struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
-	Limit int    `json:"limit,omitempty"`
+// SendMessageRequest represents a request to send a message
+type SendMessageRequest struct {
+	Input     string `json:"input"`
+	AgentID   string `json:"agent_id"`
+	Stream    bool   `json:"stream,omitempty"`
 }
 
-// lettaMessage represents a Letta message.
-type lettaMessage struct {
+// SendMessageResponse represents a response from sending a message
+type SendMessageResponse struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
 	Role    string `json:"role"`
-	Content string `json:"text"`
 }
 
-// lettaSendRequest is the request to send a message to an agent.
-type lettaSendRequest struct {
-	Messages []lettaMessage `json:"messages"`
+// Memory represents a stored memory in Letta
+type Memory struct {
+	ID        string    `json:"id"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	AgentID   string    `json:"agent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// lettaSendResponse is the response from sending a message.
-type lettaSendResponse struct {
-	Messages []lettaMessage `json:"messages"`
+// Source represents a data source for RAG
+type Source struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Type        string    `json:"type"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
-// lettaCreateAgentRequest is the request to create a new agent.
-type lettaCreateAgentRequest struct {
-	Name         string       `json:"name"`
-	Description  string       `json:"description,omitempty"`
-	MemoryBlocks []lettaBlock `json:"memory_blocks,omitempty"`
-	LLMConfig    interface{}  `json:"llm_config,omitempty"`
-}
+// ==================== Agent Management ====================
 
-// EnsureAgent creates or retrieves the HelixMemory agent.
-func (c *Client) EnsureAgent(ctx context.Context) (string, error) {
-	if c.agentID != "" {
-		return c.agentID, nil
-	}
-
-	// List agents to find existing HelixMemory agent
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodGet,
-		c.endpoint+"/v1/agents/",
-		nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("letta: create list request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("letta: list agents failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 400 {
-		var agents []lettaAgent
-		if err := json.NewDecoder(resp.Body).Decode(&agents); err == nil {
-			for _, a := range agents {
-				if a.Name == "helixmemory" {
-					c.agentID = a.ID
-					return c.agentID, nil
-				}
-			}
-		}
-	}
-
-	// Create new agent
-	createReq := &lettaCreateAgentRequest{
-		Name:        "helixmemory",
-		Description: "HelixMemory unified cognitive memory agent",
-		MemoryBlocks: []lettaBlock{
-			{Label: "human", Value: "The user interacting with HelixAgent.", Limit: 5000},
-			{Label: "persona", Value: "I am the HelixMemory system, managing unified cognitive memory across Mem0, Cognee, and Letta backends.", Limit: 5000},
-			{Label: "project_context", Value: "", Limit: 10000},
-			{Label: "working_memory", Value: "", Limit: 10000},
-		},
-	}
-
-	body, err := json.Marshal(createReq)
-	if err != nil {
-		return "", fmt.Errorf("letta: marshal create request: %w", err)
-	}
-
-	createHTTP, err := http.NewRequestWithContext(
-		ctx, http.MethodPost,
-		c.endpoint+"/v1/agents/",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return "", fmt.Errorf("letta: create agent request: %w", err)
-	}
-	createHTTP.Header.Set("Content-Type", "application/json")
-
-	createResp, err := c.httpClient.Do(createHTTP)
-	if err != nil {
-		return "", fmt.Errorf("letta: create agent failed: %w", err)
-	}
-	defer createResp.Body.Close()
-
-	if createResp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(createResp.Body)
-		return "", fmt.Errorf("letta: create agent error %d: %s", createResp.StatusCode, string(respBody))
-	}
-
-	var agent lettaAgent
-	if err := json.NewDecoder(createResp.Body).Decode(&agent); err != nil {
-		return "", fmt.Errorf("letta: decode agent response: %w", err)
-	}
-
-	c.agentID = agent.ID
-	return c.agentID, nil
-}
-
-// Add stores a memory by sending it to the Letta agent.
-func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
+// CreateAgent creates a new Letta agent.
+func (c *Client) CreateAgent(ctx context.Context, req *CreateAgentRequest) (*Agent, error) {
 	if !c.breaker.Allow() {
-		return fmt.Errorf("letta: circuit breaker open")
+		return nil, fmt.Errorf("letta: circuit breaker open")
 	}
 
-	agentID, err := c.EnsureAgent(ctx)
+	body, err := json.Marshal(req)
 	if err != nil {
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: ensure agent: %w", err)
-	}
-
-	sendReq := &lettaSendRequest{
-		Messages: []lettaMessage{
-			{Role: "user", Content: fmt.Sprintf("[MEMORY_STORE] %s", entry.Content)},
-		},
-	}
-
-	body, err := json.Marshal(sendReq)
-	if err != nil {
-		return fmt.Errorf("letta: marshal send request: %w", err)
+		return nil, fmt.Errorf("letta: marshal create agent request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodPost,
-		fmt.Sprintf("%s/v1/agents/%s/messages", c.endpoint, agentID),
+		c.endpoint+"/v1/agents",
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return fmt.Errorf("letta: create send request: %w", err)
+		return nil, fmt.Errorf("letta: create agent request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: send request failed: %w", err)
+		return nil, fmt.Errorf("letta: create agent request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
 		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: send API error %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("letta: create agent API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var agent Agent
+	if err := json.NewDecoder(resp.Body).Decode(&agent); err != nil {
+		return nil, fmt.Errorf("letta: decode create agent response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &agent, nil
+}
+
+// GetAgent retrieves an agent by ID.
+func (c *Client) GetAgent(ctx context.Context, agentID string) (*Agent, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/agents/"+agentID,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create get agent request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: get agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: get agent API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var agent Agent
+	if err := json.NewDecoder(resp.Body).Decode(&agent); err != nil {
+		return nil, fmt.Errorf("letta: decode get agent response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &agent, nil
+}
+
+// ListAgents returns all agents.
+func (c *Client) ListAgents(ctx context.Context) ([]Agent, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/agents",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create list agents request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: list agents request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: list agents API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var agents []Agent
+	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+		return nil, fmt.Errorf("letta: decode list agents response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return agents, nil
+}
+
+// DeleteAgent removes an agent.
+func (c *Client) DeleteAgent(ctx context.Context, agentID string) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("letta: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodDelete,
+		c.endpoint+"/v1/agents/"+agentID,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("letta: create delete agent request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("letta: delete agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("letta: delete agent API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	c.breaker.RecordSuccess()
 	return nil
 }
 
-// Search queries the Letta agent for relevant memories.
+// ==================== Message Operations ====================
+
+// SendMessage sends a message to an agent.
+func (c *Client) SendMessage(ctx context.Context, agentID, input string) (*SendMessageResponse, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	req := &SendMessageRequest{
+		Input:   input,
+		AgentID: agentID,
+		Stream:  false,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("letta: marshal send message request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/agents/"+agentID+"/messages",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create send message request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: send message request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: send message API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var messageResp SendMessageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&messageResp); err != nil {
+		return nil, fmt.Errorf("letta: decode send message response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &messageResp, nil
+}
+
+// GetMessages retrieves all messages for an agent.
+func (c *Client) GetMessages(ctx context.Context, agentID string) ([]Message, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/agents/"+agentID+"/messages",
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create get messages request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: get messages request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: get messages API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var messages []Message
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return nil, fmt.Errorf("letta: decode get messages response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return messages, nil
+}
+
+// ==================== Memory Block Operations ====================
+
+// GetMemoryBlock retrieves a specific memory block.
+func (c *Client) GetMemoryBlock(ctx context.Context, agentID, blockID string) (*MemoryBlock, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		c.endpoint+"/v1/agents/"+agentID+"/memory/blocks/"+blockID,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create get memory block request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: get memory block request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: get memory block API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var block MemoryBlock
+	if err := json.NewDecoder(resp.Body).Decode(&block); err != nil {
+		return nil, fmt.Errorf("letta: decode get memory block response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &block, nil
+}
+
+// UpdateMemoryBlock updates a memory block.
+func (c *Client) UpdateMemoryBlock(ctx context.Context, agentID, blockID, value string) (*MemoryBlock, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	reqBody := map[string]string{
+		"value": value,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("letta: marshal update memory block request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/agents/"+agentID+"/memory/blocks/"+blockID,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create update memory block request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: update memory block request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: update memory block API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var block MemoryBlock
+	if err := json.NewDecoder(resp.Body).Decode(&block); err != nil {
+		return nil, fmt.Errorf("letta: decode update memory block response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &block, nil
+}
+
+// ==================== Source Operations ====================
+
+// CreateSource creates a new data source for RAG.
+func (c *Client) CreateSource(ctx context.Context, name, description, sourceType string, metadata map[string]interface{}) (*Source, error) {
+	if !c.breaker.Allow() {
+		return nil, fmt.Errorf("letta: circuit breaker open")
+	}
+
+	reqBody := map[string]interface{}{
+		"name":        name,
+		"description": description,
+		"type":        sourceType,
+		"metadata":    metadata,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("letta: marshal create source request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/sources",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("letta: create source request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: create source request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return nil, fmt.Errorf("letta: create source API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var source Source
+	if err := json.NewDecoder(resp.Body).Decode(&source); err != nil {
+		return nil, fmt.Errorf("letta: decode create source response: %w", err)
+	}
+
+	c.breaker.RecordSuccess()
+	return &source, nil
+}
+
+// UploadFileToSource uploads a file to a source for RAG.
+func (c *Client) UploadFileToSource(ctx context.Context, sourceID string, filename string, content []byte) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("letta: circuit breaker open")
+	}
+
+	// Letta uses multipart form for file uploads
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return fmt.Errorf("letta: create form file: %w", err)
+	}
+	
+	if _, err := part.Write(content); err != nil {
+		return fmt.Errorf("letta: write file content: %w", err)
+	}
+	
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("letta: close writer: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/sources/"+sourceID+"/files",
+		&buf,
+	)
+	if err != nil {
+		return fmt.Errorf("letta: create upload file request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("letta: upload file request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("letta: upload file API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.breaker.RecordSuccess()
+	return nil
+}
+
+// AttachSourceToAgent attaches a source to an agent for RAG.
+func (c *Client) AttachSourceToAgent(ctx context.Context, agentID, sourceID string) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("letta: circuit breaker open")
+	}
+
+	reqBody := map[string]string{
+		"source_id": sourceID,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("letta: marshal attach source request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		c.endpoint+"/v1/agents/"+agentID+"/sources",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("letta: create attach source request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.breaker.RecordFailure()
+		return fmt.Errorf("letta: attach source request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.breaker.RecordFailure()
+		return fmt.Errorf("letta: attach source API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.breaker.RecordSuccess()
+	return nil
+}
+
+// ==================== Core Memory Interface Implementation ====================
+
+// Add stores content as a memory block in Letta.
+func (c *Client) Add(ctx context.Context, entry *types.MemoryEntry) error {
+	if !c.breaker.Allow() {
+		return fmt.Errorf("letta: circuit breaker open")
+	}
+
+	// Use agent_id from entry as the target agent
+	agentID := entry.AgentID
+	if agentID == "" {
+		return fmt.Errorf("letta: agent_id is required for adding memory")
+	}
+
+	// Create or update a memory block
+	blockName := "helix_memory"
+	if name, ok := entry.Metadata["block_name"].(string); ok {
+		blockName = name
+	}
+
+	_, err := c.UpdateMemoryBlock(ctx, agentID, blockName, entry.Content)
+	if err != nil {
+		return fmt.Errorf("letta: add memory failed: %w", err)
+	}
+
+	return nil
+}
+
+// Get retrieves a memory by ID (uses memory block ID).
+func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error) {
+	// Letta doesn't have a direct "get memory by ID" - we use memory blocks
+	return nil, fmt.Errorf("letta: Get by ID not supported directly, use GetMemoryBlock with agent_id")
+}
+
+// Update modifies a memory.
+func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
+	return c.Add(ctx, entry) // Same as add for Letta
+}
+
+// Delete removes a memory.
+func (c *Client) Delete(ctx context.Context, id string) error {
+	// Letta doesn't support direct memory deletion - memory blocks are updated
+	return fmt.Errorf("letta: Delete not supported directly, use UpdateMemoryBlock to clear")
+}
+
+// Search finds memories matching the query (uses agent messages).
 func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.SearchResult, error) {
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("letta: circuit breaker open")
@@ -224,345 +669,86 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 
 	start := time.Now()
 
-	agentID, err := c.EnsureAgent(ctx)
+	agentID := req.AgentID
+	if agentID == "" {
+		return nil, fmt.Errorf("letta: agent_id is required for search")
+	}
+
+	// Send the query as a message and get the response
+	// This leverages Letta's built-in retrieval from memory blocks
+	resp, err := c.SendMessage(ctx, agentID, req.Query)
 	if err != nil {
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: ensure agent: %w", err)
+		return nil, err
 	}
 
-	// Use archival memory search
-	searchURL := fmt.Sprintf(
-		"%s/v1/agents/%s/archival?query=%s&limit=%d",
-		c.endpoint, agentID, req.Query, req.TopK,
-	)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("letta: create search request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: search API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var results []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		return nil, fmt.Errorf("letta: decode search response: %w", err)
-	}
-
-	c.breaker.RecordSuccess()
-
-	entries := make([]*types.MemoryEntry, 0, len(results))
-	for _, r := range results {
-		entry := &types.MemoryEntry{
-			ID:         fmt.Sprintf("%v", r["id"]),
-			Type:       types.MemoryTypeCore,
-			Source:     types.SourceLetta,
-			Confidence: 0.90,
-			Metadata:   r,
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
-		}
-		if content, ok := r["text"].(string); ok {
-			entry.Content = content
-		}
-		if entry.ID == "" {
-			entry.ID = uuid.New().String()
-		}
-		entries = append(entries, entry)
+	// Create a single entry from the response
+	entry := &types.MemoryEntry{
+		ID:        uuid.New().String(),
+		Content:   resp.Content,
+		AgentID:   agentID,
+		Type:      types.MemoryTypeProcedural,
+		Source:    types.SourceLetta,
+		Relevance: 1.0,
+		Metadata: map[string]interface{}{
+			"response_id": resp.ID,
+			"query":       req.Query,
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	return &types.SearchResult{
-		Entries:  entries,
-		Total:    len(entries),
+		Entries:  []*types.MemoryEntry{entry},
+		Total:    1,
 		Duration: time.Since(start),
 		Sources:  []types.MemorySource{types.SourceLetta},
 	}, nil
 }
 
-// Get retrieves a memory by ID from archival storage.
-func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error) {
+// GetHistory retrieves conversation history for an agent.
+func (c *Client) GetHistory(ctx context.Context, agentID string, limit int) ([]*types.MemoryEntry, error) {
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("letta: circuit breaker open")
 	}
 
-	agentID, err := c.EnsureAgent(ctx)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: ensure agent: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodGet,
-		fmt.Sprintf("%s/v1/agents/%s/archival/%s", c.endpoint, agentID, id),
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("letta: create get request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: get request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		c.breaker.RecordSuccess()
-		return nil, fmt.Errorf("letta: memory %s not found", id)
-	}
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: get API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("letta: decode get response: %w", err)
-	}
-
-	c.breaker.RecordSuccess()
-
-	entry := &types.MemoryEntry{
-		ID:         id,
-		Type:       types.MemoryTypeCore,
-		Source:     types.SourceLetta,
-		Confidence: 0.90,
-		Metadata:   result,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-	if content, ok := result["text"].(string); ok {
-		entry.Content = content
-	}
-	return entry, nil
-}
-
-// Update modifies a memory in archival storage.
-func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
-	if !c.breaker.Allow() {
-		return fmt.Errorf("letta: circuit breaker open")
-	}
-
-	agentID, err := c.EnsureAgent(ctx)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: ensure agent: %w", err)
-	}
-
-	body, err := json.Marshal(map[string]string{"text": entry.Content})
-	if err != nil {
-		return fmt.Errorf("letta: marshal update: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodPatch,
-		fmt.Sprintf("%s/v1/agents/%s/archival/%s", c.endpoint, agentID, entry.ID),
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("letta: create update request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: update request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: update API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	c.breaker.RecordSuccess()
-	return nil
-}
-
-// Delete removes a memory from archival storage.
-func (c *Client) Delete(ctx context.Context, id string) error {
-	if !c.breaker.Allow() {
-		return fmt.Errorf("letta: circuit breaker open")
-	}
-
-	agentID, err := c.EnsureAgent(ctx)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: ensure agent: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodDelete,
-		fmt.Sprintf("%s/v1/agents/%s/archival/%s", c.endpoint, agentID, id),
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("letta: create delete request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: delete request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: delete API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	c.breaker.RecordSuccess()
-	return nil
-}
-
-// GetHistory returns recent messages from the Letta agent.
-func (c *Client) GetHistory(ctx context.Context, userID string, limit int) ([]*types.MemoryEntry, error) {
-	req := &types.SearchRequest{
-		Query:  "*",
-		UserID: userID,
-		TopK:   limit,
-	}
-	result, err := c.Search(ctx, req)
+	messages, err := c.GetMessages(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
-	return result.Entries, nil
-}
 
-// GetCoreMemory retrieves core memory blocks for an agent.
-func (c *Client) GetCoreMemory(ctx context.Context, agentID string) ([]*types.CoreMemoryBlock, error) {
-	if !c.breaker.Allow() {
-		return nil, fmt.Errorf("letta: circuit breaker open")
+	// Convert messages to entries
+	entries := make([]*types.MemoryEntry, 0, len(messages))
+	for _, msg := range messages {
+		entries = append(entries, &types.MemoryEntry{
+			ID:        msg.ID,
+			Content:   msg.Content,
+			AgentID:   agentID,
+			Type:      types.MemoryTypeEpisodic,
+			Source:    types.SourceLetta,
+			Metadata:  map[string]interface{}{"role": msg.Role},
+			CreatedAt: msg.CreatedAt,
+		})
 	}
 
-	if agentID == "" {
-		var err error
-		agentID, err = c.EnsureAgent(ctx)
-		if err != nil {
-			return nil, err
-		}
+	// Apply limit
+	if limit > 0 && limit < len(entries) {
+		entries = entries[len(entries)-limit:]
 	}
 
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodGet,
-		fmt.Sprintf("%s/v1/agents/%s/memory", c.endpoint, agentID),
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("letta: create core memory request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: core memory request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return nil, fmt.Errorf("letta: core memory API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result struct {
-		Memory []lettaBlock `json:"memory"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("letta: decode core memory: %w", err)
-	}
-
-	c.breaker.RecordSuccess()
-
-	blocks := make([]*types.CoreMemoryBlock, len(result.Memory))
-	for i, b := range result.Memory {
-		blocks[i] = &types.CoreMemoryBlock{
-			Label:   b.Label,
-			Value:   b.Value,
-			Limit:   b.Limit,
-			AgentID: agentID,
-		}
-	}
-	return blocks, nil
-}
-
-// UpdateCoreMemory updates a core memory block.
-func (c *Client) UpdateCoreMemory(ctx context.Context, agentID string, block *types.CoreMemoryBlock) error {
-	if !c.breaker.Allow() {
-		return fmt.Errorf("letta: circuit breaker open")
-	}
-
-	if agentID == "" {
-		var err error
-		agentID, err = c.EnsureAgent(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	body, err := json.Marshal(map[string]interface{}{
-		"label": block.Label,
-		"value": block.Value,
-		"limit": block.Limit,
-	})
-	if err != nil {
-		return fmt.Errorf("letta: marshal core memory update: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(
-		ctx, http.MethodPatch,
-		fmt.Sprintf("%s/v1/agents/%s/memory", c.endpoint, agentID),
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("letta: create core memory update request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: core memory update failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		c.breaker.RecordFailure()
-		return fmt.Errorf("letta: core memory update error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	c.breaker.RecordSuccess()
-	return nil
+	return entries, nil
 }
 
 // Health checks if Letta is available.
 func (c *Client) Health(ctx context.Context) error {
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodGet,
-		c.endpoint+"/v1/health/",
+		c.endpoint+"/v1/health",
 		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("letta: create health request: %w", err)
 	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
