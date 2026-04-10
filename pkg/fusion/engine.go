@@ -486,3 +486,23 @@ func (e *FusionEngine) QueryKnowledgeGraph(ctx context.Context, query string) (*
 
 	return e.cognee.Search(ctx, req)
 }
+
+// Fuse merges search results from multiple backends into a single result
+// using the consolidator's deduplication and re-ranking pipeline.
+func (e *FusionEngine) Fuse(results []*types.SearchResult, req *types.SearchRequest) *types.SearchResult {
+	// Convert slice to map keyed by index for the consolidator
+	mapped := make(map[types.MemorySource]*types.SearchResult)
+	for i, r := range results {
+		if r != nil {
+			mapped[types.MemorySource(fmt.Sprintf("source_%d", i))] = r
+		}
+	}
+	fusedResult := e.consolidator.FuseResults(mapped, req)
+	if fusedResult == nil {
+		return &types.SearchResult{Entries: []*types.MemoryEntry{}, Total: 0}
+	}
+	return &types.SearchResult{
+		Entries: fusedResult.Entries,
+		Total:   len(fusedResult.Entries),
+	}
+}

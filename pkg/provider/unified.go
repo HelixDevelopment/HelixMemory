@@ -23,7 +23,7 @@ import (
 type UnifiedMemoryProvider struct {
 	mu        sync.RWMutex
 	providers map[types.MemorySource]types.MemoryProvider
-	fusion    *fusion.Engine
+	fusion    *fusion.FusionEngine
 	router    *routing.Router
 	cfg       *config.Config
 }
@@ -32,7 +32,7 @@ type UnifiedMemoryProvider struct {
 func New(cfg *config.Config) *UnifiedMemoryProvider {
 	return &UnifiedMemoryProvider{
 		providers: make(map[types.MemorySource]types.MemoryProvider),
-		fusion:    fusion.NewEngine(cfg),
+		fusion:    func() *fusion.FusionEngine { fe, _ := fusion.NewFusionEngine(cfg, nil); return fe }(),
 		router:    routing.NewRouter(),
 		cfg:       cfg,
 	}

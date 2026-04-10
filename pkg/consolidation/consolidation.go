@@ -19,7 +19,7 @@ import (
 type Engine struct {
 	mu        sync.RWMutex
 	cfg       *config.Config
-	fusion    *fusion.Engine
+	fusion    *fusion.FusionEngine
 	providers []types.MemoryProvider
 	running   bool
 	stopCh    chan struct{}
@@ -40,9 +40,10 @@ type Stats struct {
 
 // NewEngine creates a consolidation engine.
 func NewEngine(cfg *config.Config) *Engine {
+	fe, _ := fusion.NewFusionEngine(cfg, nil)
 	return &Engine{
 		cfg:    cfg,
-		fusion: fusion.NewEngine(cfg),
+		fusion: fe,
 		stopCh: make(chan struct{}),
 	}
 }

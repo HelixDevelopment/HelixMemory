@@ -51,8 +51,10 @@ type Config struct {
 	RequestTimeout       time.Duration
 
 	// Consolidation
-	ConsolidationEnabled  bool
-	ConsolidationInterval time.Duration
+	ConsolidationEnabled   bool
+	ConsolidationInterval  time.Duration
+	ConsolidationBatchSize int
+	MaxConcurrentQueries   int
 
 	// Circuit Breaker
 	CircuitBreakerThreshold int
@@ -77,6 +79,8 @@ func LoadConfig() (*Config, error) {
 		RequestTimeout:          getEnvDuration("HELIX_MEMORY_REQUEST_TIMEOUT", 10*time.Second),
 		ConsolidationEnabled:    getEnvBool("HELIX_MEMORY_CONSOLIDATION_ENABLED", true),
 		ConsolidationInterval:   getEnvDuration("HELIX_MEMORY_CONSOLIDATION_INTERVAL", 30*time.Minute),
+		ConsolidationBatchSize:  getEnvInt("HELIX_MEMORY_CONSOLIDATION_BATCH_SIZE", 100),
+		MaxConcurrentQueries:    getEnvInt("HELIX_MEMORY_MAX_CONCURRENT_QUERIES", 10),
 		CircuitBreakerThreshold: getEnvInt("HELIX_MEMORY_CIRCUIT_BREAKER_THRESHOLD", 5),
 		CircuitBreakerTimeout:   getEnvDuration("HELIX_MEMORY_CIRCUIT_BREAKER_TIMEOUT", 30*time.Second),
 		EmbeddingModel:          getEnv("HELIX_MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"),
