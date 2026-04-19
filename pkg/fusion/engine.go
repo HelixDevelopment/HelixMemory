@@ -511,19 +511,35 @@ func (e *FusionEngine) QueryKnowledgeGraph(ctx context.Context, query string) (*
 // Fuse merges search results from multiple backends into a single result
 // using the consolidator's deduplication and re-ranking pipeline.
 func (e *FusionEngine) Fuse(results []*types.SearchResult, req *types.SearchRequest) *types.SearchResult {
+	// Sum durations across all source results so callers can reason
+	// about total probe latency (BUGFIX #33 — Fuse previously
+	// discarded per-source Duration fields, and the contract in
+	// TestFusionEngine_DurationAggregation expects the aggregate).
+	var totalDuration time.Duration
+	sources := make([]types.MemorySource, 0, len(results))
 	// Convert slice to map keyed by index for the consolidator
 	mapped := make(map[types.MemorySource]*types.SearchResult)
 	for i, r := range results {
-		if r != nil {
-			mapped[types.MemorySource(fmt.Sprintf("source_%d", i))] = r
+		if r == nil {
+			continue
 		}
+		mapped[types.MemorySource(fmt.Sprintf("source_%d", i))] = r
+		totalDuration += r.Duration
+		sources = append(sources, r.Sources...)
 	}
 	fusedResult := e.consolidator.FuseResults(mapped, req)
 	if fusedResult == nil {
-		return &types.SearchResult{Entries: []*types.MemoryEntry{}, Total: 0}
+		return &types.SearchResult{
+			Entries:  []*types.MemoryEntry{},
+			Total:    0,
+			Duration: totalDuration,
+			Sources:  sources,
+		}
 	}
 	return &types.SearchResult{
-		Entries: fusedResult.Entries,
-		Total:   len(fusedResult.Entries),
+		Entries:  fusedResult.Entries,
+		Total:    len(fusedResult.Entries),
+		Duration: totalDuration,
+		Sources:  sources,
 	}
 }

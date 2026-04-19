@@ -261,15 +261,25 @@ func (c *Consolidator) normalizeContent(content string) string {
 }
 
 // mergeGroup merges a group of similar memories.
+//
+// When collapsing duplicate memory entries the base should be the
+// one with the HIGHEST confidence — if two sources report the same
+// content with different quality scores we want to surface the
+// better-scored one. Tie-break on recency. Previously the base was
+// simply the most-recent entry, which discarded high-confidence
+// signals (BUGFIX #33 follow-up).
 func (c *Consolidator) mergeGroup(group []*types.MemoryEntry) *types.MemoryEntry {
 	if len(group) == 0 {
 		return nil
 	}
 
-	// Use the most recent entry as base
 	base := group[0]
 	for _, entry := range group {
-		if entry.CreatedAt.After(base.CreatedAt) {
+		if entry.Confidence > base.Confidence {
+			base = entry
+			continue
+		}
+		if entry.Confidence == base.Confidence && entry.CreatedAt.After(base.CreatedAt) {
 			base = entry
 		}
 	}
