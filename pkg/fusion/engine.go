@@ -19,6 +19,27 @@ import (
 	"go.uber.org/zap"
 )
 
+// Engine is an alias for FusionEngine — kept for tests/integration and
+// downstream consumers that used the shorter name before the rename
+// (BUGFIX #32).
+type Engine = FusionEngine
+
+// NewEngine is a test-friendly wrapper over NewFusionEngine that uses a
+// no-op zap logger and panics on error. Intended for integration tests
+// and quick-start code; production callers should use NewFusionEngine
+// directly so they can inspect the error.
+func NewEngine(cfg *config.Config) *FusionEngine {
+	e, err := NewFusionEngine(cfg, zap.NewNop())
+	if err != nil {
+		// NewFusionEngine only errors on client construction failures;
+		// in the contexts where NewEngine is used (tests with default
+		// config) that branch is unreachable. If it ever fires we
+		// want the caller to see it immediately.
+		panic(fmt.Sprintf("fusion.NewEngine: NewFusionEngine failed: %v", err))
+	}
+	return e
+}
+
 // FusionEngine combines Cognee, Mem0, and Letta into a unified memory system.
 type FusionEngine struct {
 	cognee    *cognee.Client

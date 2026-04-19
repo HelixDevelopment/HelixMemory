@@ -69,6 +69,46 @@ type Config struct {
 	EnableMetrics bool
 }
 
+// DefaultConfig returns a *Config pre-populated with the same
+// defaults LoadConfig would use (with no env vars set) but without
+// touching the environment and without returning an error — handy
+// for tests that need a predictable baseline.
+//
+// Introduced to unblock pkg/provider + tests/* build (BUGFIX #32).
+// The previous state: adapter_test.go and unified_test.go called
+// `config.DefaultConfig()` which did not exist; every test in
+// those files failed to compile.
+func DefaultConfig() *Config {
+	return &Config{
+		Mode:                    "local",
+		CogneeEndpoint:          "http://localhost:8000",
+		Mem0Endpoint:            "http://localhost:8001",
+		LettaEndpoint:           "http://localhost:8283",
+		GraphitiEndpoint:        "http://localhost:8003",
+		CogneeCloudEndpoint:     "https://api.cognee.ai",
+		Mem0CloudEndpoint:       "https://api.mem0.ai",
+		LettaCloudEndpoint:      "https://api.letta.com",
+		QdrantEndpoint:          "http://localhost:6333",
+		Neo4jEndpoint:           "bolt://localhost:7687",
+		Neo4jUser:               "neo4j",
+		Neo4jPassword:           "helixmemory",
+		RedisEndpoint:           "localhost:6379",
+		FusionDedupThreshold:    0.92,
+		DefaultTopK:             10,
+		RequestTimeout:          10 * time.Second,
+		ConsolidationEnabled:    true,
+		ConsolidationInterval:   30 * time.Minute,
+		ConsolidationBatchSize:  100,
+		MaxConcurrentQueries:    10,
+		CircuitBreakerThreshold: 5,
+		CircuitBreakerTimeout:   30 * time.Second,
+		EmbeddingModel:          "text-embedding-3-small",
+		EmbeddingEndpoint:       "http://localhost:7061/v1",
+		EmbeddingDimension:      1536,
+		EnableMetrics:           true,
+	}
+}
+
 // LoadConfig loads configuration from environment variables.
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
