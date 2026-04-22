@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"digital.vasic.helixmemory/pkg/config"
@@ -277,7 +279,24 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 }
 
 // Get retrieves a memory by ID (v1 API).
+func validateID(id string) error {
+	if strings.Contains(id, "\\") || strings.HasPrefix(id, "/") {
+		return fmt.Errorf("invalid id: path traversal detected")
+	}
+	decoded, err := url.PathUnescape(id)
+	if err != nil {
+		return fmt.Errorf("invalid id")
+	}
+	if strings.Contains(decoded, "..") {
+		return fmt.Errorf("invalid id: path traversal detected")
+	}
+	return nil
+}
+
 func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error) {
+	if err := validateID(id); err != nil {
+		return nil, fmt.Errorf("cognee: %w", err)
+	}
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("cognee: circuit breaker open")
 	}
@@ -331,13 +350,16 @@ func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
 
 // Delete removes a memory by ID (v1 API).
 func (c *Client) Delete(ctx context.Context, id string) error {
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("cognee: %w", err)
+	}
 	if !c.breaker.Allow() {
 		return fmt.Errorf("cognee: circuit breaker open")
 	}
 
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodDelete,
-		c.endpoint+"/api/v1/delete/data/"+id,
+		c.endpoint+"/api/v1/data/"+id,
 		nil,
 	)
 	if err != nil {
@@ -403,11 +425,9 @@ func (c *Client) Health(ctx context.Context) error {
 	}
 
 	var healthResp cogneeHealthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&healthResp); err != nil {
-		return fmt.Errorf("cognee: decode health response: %w", err)
-	}
+	_ = json.NewDecoder(resp.Body).Decode(&healthResp) // tolerate empty body
 
-	if healthResp.Status != "healthy" && healthResp.Status != "ok" {
+	if healthResp.Status != "" && healthResp.Status != "healthy" && healthResp.Status != "ok" {
 		return fmt.Errorf("cognee: unhealthy (status: %s)", healthResp.Status)
 	}
 

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"digital.vasic.helixmemory/pkg/config"
@@ -211,7 +213,24 @@ func (c *Client) AddBatch(ctx context.Context, entries []*types.MemoryEntry) err
 }
 
 // Get retrieves a memory by ID.
+func validateID(id string) error {
+	if strings.Contains(id, "\\") || strings.HasPrefix(id, "/") {
+		return fmt.Errorf("invalid id: path traversal detected")
+	}
+	decoded, err := url.PathUnescape(id)
+	if err != nil {
+		return fmt.Errorf("invalid id")
+	}
+	if strings.Contains(decoded, "..") {
+		return fmt.Errorf("invalid id: path traversal detected")
+	}
+	return nil
+}
+
 func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error) {
+	if err := validateID(id); err != nil {
+		return nil, fmt.Errorf("mem0: %w", err)
+	}
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("mem0: circuit breaker open")
 	}
@@ -299,6 +318,9 @@ func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
 
 // Delete removes a memory by ID.
 func (c *Client) Delete(ctx context.Context, id string) error {
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("mem0: %w", err)
+	}
 	if !c.breaker.Allow() {
 		return fmt.Errorf("mem0: circuit breaker open")
 	}
@@ -415,10 +437,13 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 		return nil, fmt.Errorf("mem0: search API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var memories []Memory
-	if err := json.NewDecoder(resp.Body).Decode(&memories); err != nil {
+	var result struct {
+		Results []Memory `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("mem0: decode search response: %w", err)
 	}
+	memories := result.Results
 
 	c.breaker.RecordSuccess()
 
@@ -888,7 +913,7 @@ func (c *Client) DeleteWebhook(ctx context.Context, webhookID string) error {
 func (c *Client) Health(ctx context.Context) error {
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodGet,
-		c.endpoint+"/v1/health/",
+		c.endpoint+"/health",
 		nil,
 	)
 	if err != nil {

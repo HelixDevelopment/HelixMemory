@@ -3,6 +3,7 @@ package fusion
 
 import (
 	"context"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -46,31 +47,28 @@ func (c *Consolidator) FuseResults(results map[types.MemorySource]*types.SearchR
 		Query:       req.Query,
 	}
 
-	// Clear deduplication cache for new query
-	c.clearCache()
-
-	// Collect all entries with source tracking
-	var allEntries []*scoredEntry
-
+	// Flatten all entries
+	var flatEntries []*types.MemoryEntry
 	for source, result := range results {
 		if result == nil {
 			continue
 		}
-
 		fused.Sources = append(fused.Sources, source)
 		fused.SourceStats[source] = result.Total
+		flatEntries = append(flatEntries, result.Entries...)
+	}
 
-		for _, entry := range result.Entries {
-			if c.isDuplicate(entry) {
-				continue
-			}
+	// Deduplicate: exact content and embedding similarity
+	deduped := c.deduplicateEntries(flatEntries)
 
-			score := c.calculateFusionScore(entry, source, result)
-			allEntries = append(allEntries, &scoredEntry{
-				entry: entry,
-				score: score,
-			})
-		}
+	// Score and sort
+	var allEntries []*scoredEntry
+	for _, entry := range deduped {
+		score := c.calculateFusionScore(entry, entry.Source, req)
+		allEntries = append(allEntries, &scoredEntry{
+			entry: entry,
+			score: score,
+		})
 	}
 
 	// Sort by fusion score (descending)
@@ -100,7 +98,7 @@ func (c *Consolidator) FuseResults(results map[types.MemorySource]*types.SearchR
 	}
 
 	c.logger.Debug("Results fused",
-		zap.Int("total_input", len(allEntries)),
+		zap.Int("total_input", len(flatEntries)),
 		zap.Int("total_output", fused.Total),
 		zap.Int("sources", len(fused.Sources)),
 	)
@@ -115,7 +113,7 @@ type scoredEntry struct {
 }
 
 // calculateFusionScore computes a relevance score for fusion ranking.
-func (c *Consolidator) calculateFusionScore(entry *types.MemoryEntry, source types.MemorySource, result *types.SearchResult) float64 {
+func (c *Consolidator) calculateFusionScore(entry *types.MemoryEntry, source types.MemorySource, req *types.SearchRequest) float64 {
 	baseScore := entry.Relevance
 
 	// Source-specific weighting
@@ -136,15 +134,43 @@ func (c *Consolidator) calculateFusionScore(entry *types.MemoryEntry, source typ
 	// Confidence boost
 	confidenceBoost := entry.Confidence * 0.1
 
-	// Final score
-	finalScore := (baseScore * weight) + recencyBoost + confidenceBoost
+	// Type weight
+	typeWeight := c.calculateTypeWeight(entry, req)
 
-	// Normalize to 0-1 range
-	if finalScore > 1.0 {
-		finalScore = 1.0
-	}
+	// Final score
+	finalScore := (baseScore * weight * typeWeight) + recencyBoost + confidenceBoost
 
 	return finalScore
+}
+
+// calculateTypeWeight returns a multiplicative weight for memory types.
+// Requested types get a strong boost; default priorities apply otherwise.
+func (c *Consolidator) calculateTypeWeight(entry *types.MemoryEntry, req *types.SearchRequest) float64 {
+	// If request specifies types, strongly boost matching types
+	if req != nil && len(req.Types) > 0 {
+		for _, t := range req.Types {
+			if entry.Type == t {
+				return 1.35
+			}
+		}
+		return 1.0
+	}
+
+	// Default type weights
+	typeWeights := map[types.MemoryType]float64{
+		types.MemoryTypeCore:       1.25,
+		types.MemoryTypeFact:       1.10,
+		types.MemoryTypeProcedural: 1.10,
+		types.MemoryTypeGraph:      1.05,
+		types.MemoryTypeTemporal:   1.00,
+		types.MemoryTypeEpisodic:   0.95,
+	}
+
+	w := typeWeights[entry.Type]
+	if w == 0 {
+		w = 1.0
+	}
+	return w
 }
 
 // calculateRecencyBoost gives higher scores to recent memories.
@@ -192,6 +218,57 @@ func (c *Consolidator) clearCache() {
 
 	c.seenIDs = make(map[string]bool)
 	c.seenContent = make(map[string]bool)
+}
+
+// deduplicateEntries removes duplicates, keeping the entry with highest
+// confidence. It checks exact content match and embedding cosine similarity.
+func (c *Consolidator) deduplicateEntries(entries []*types.MemoryEntry) []*types.MemoryEntry {
+	// Phase 1: exact content dedup — keep highest confidence
+	bestByContent := make(map[string]*types.MemoryEntry)
+	for _, e := range entries {
+		existing, ok := bestByContent[e.Content]
+		if !ok || e.Confidence > existing.Confidence {
+			bestByContent[e.Content] = e
+		}
+	}
+
+	// Phase 2: embedding similarity dedup (cosine >= 0.92)
+	var result []*types.MemoryEntry
+	for _, e := range bestByContent {
+		merged := false
+		for _, r := range result {
+			if c.cosineSimilarity(e.Embedding, r.Embedding) >= 0.92 {
+				// Merge into the higher-confidence entry
+				if e.Confidence > r.Confidence {
+					*r = *e
+				}
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			result = append(result, e)
+		}
+	}
+
+	return result
+}
+
+// cosineSimilarity computes cosine similarity between two float32 vectors.
+func (c *Consolidator) cosineSimilarity(a, b []float32) float64 {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return 0.0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		normA += float64(a[i]) * float64(a[i])
+		normB += float64(b[i]) * float64(b[i])
+	}
+	if normA == 0 || normB == 0 {
+		return 0.0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 // RunConsolidation performs sleep-time memory consolidation.

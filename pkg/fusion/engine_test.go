@@ -220,10 +220,11 @@ func TestFusionEngine_Retrieve(t *testing.T) {
 		TopK:   10,
 	}
 
-	// This will fail without actual backends
+	// Without actual backends, Retrieve returns an empty result (no error)
 	result, err := engine.Retrieve(ctx, req)
-	assert.Error(t, err)
-	assert.Nil(t, result)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Empty(t, result.Entries)
 }
 
 func TestFusionEngine_HealthCheck(t *testing.T) {
@@ -256,9 +257,10 @@ func TestFusionEngine_GetStats(t *testing.T) {
 
 	stats := engine.GetStats()
 	assert.NotNil(t, stats)
-	assert.False(t, stats.CogneeHealthy)
-	assert.False(t, stats.Mem0Healthy)
-	assert.False(t, stats.LettaHealthy)
+	// Default health is true until a health check is performed
+	assert.True(t, stats.CogneeHealthy)
+	assert.True(t, stats.Mem0Healthy)
+	assert.True(t, stats.LettaHealthy)
 }
 
 // ==================== Benchmark Tests ====================

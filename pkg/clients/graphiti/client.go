@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"digital.vasic.helixmemory/pkg/config"
@@ -253,7 +255,24 @@ func (c *Client) Search(ctx context.Context, req *types.SearchRequest) (*types.S
 }
 
 // Get retrieves a node by ID from the temporal graph.
+func validateID(id string) error {
+	if strings.Contains(id, "\\") || strings.HasPrefix(id, "/") {
+		return fmt.Errorf("invalid id: path traversal detected")
+	}
+	decoded, err := url.PathUnescape(id)
+	if err != nil {
+		return fmt.Errorf("invalid id")
+	}
+	if strings.Contains(decoded, "..") {
+		return fmt.Errorf("invalid id: path traversal detected")
+	}
+	return nil
+}
+
 func (c *Client) Get(ctx context.Context, id string) (*types.MemoryEntry, error) {
+	if err := validateID(id); err != nil {
+		return nil, fmt.Errorf("graphiti: %w", err)
+	}
 	if !c.breaker.Allow() {
 		return nil, fmt.Errorf("graphiti: circuit breaker open")
 	}
@@ -317,6 +336,9 @@ func (c *Client) Update(ctx context.Context, entry *types.MemoryEntry) error {
 
 // Delete removes a node from the temporal graph.
 func (c *Client) Delete(ctx context.Context, id string) error {
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("graphiti: %w", err)
+	}
 	if !c.breaker.Allow() {
 		return fmt.Errorf("graphiti: circuit breaker open")
 	}

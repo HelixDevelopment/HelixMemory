@@ -243,32 +243,30 @@ func TestClient_CircuitBreaker(t *testing.T) {
 func TestClient_ToMemoryEntry(t *testing.T) {
 	c := newTestClient("http://localhost")
 
-	m := &mem0Memory{
+	created, _ := time.Parse(time.RFC3339, "2025-01-15T10:30:00Z")
+	updated, _ := time.Parse(time.RFC3339, "2025-01-15T11:00:00Z")
+
+	m := &Memory{
 		ID:        "entry-1",
 		Memory:    "test content",
-		CreatedAt: "2025-01-15T10:30:00Z",
-		UpdatedAt: "2025-01-15T11:00:00Z",
+		CreatedAt: created,
+		UpdatedAt: updated,
 		Score:     0.95,
-		Hash:      "abc123",
 	}
 
 	entry := c.toMemoryEntry(m)
 	assert.Equal(t, "entry-1", entry.ID)
 	assert.Equal(t, "test content", entry.Content)
-	assert.Equal(t, types.MemoryTypeFact, entry.Type)
+	assert.Equal(t, types.MemoryTypeSemantic, entry.Type)
 	assert.Equal(t, types.SourceMem0, entry.Source)
 	assert.Equal(t, 0.95, entry.Relevance)
-
-	created, _ := time.Parse(time.RFC3339, "2025-01-15T10:30:00Z")
 	assert.Equal(t, created, entry.CreatedAt)
-	updated, _ := time.Parse(time.RFC3339, "2025-01-15T11:00:00Z")
 	assert.Equal(t, updated, entry.UpdatedAt)
-	assert.Equal(t, "abc123", entry.Metadata["mem0_hash"])
 }
 
 func TestClient_ToMemoryEntry_EmptyID(t *testing.T) {
 	c := newTestClient("http://localhost")
-	m := &mem0Memory{Memory: "content without id"}
+	m := &Memory{Memory: "content without id"}
 	entry := c.toMemoryEntry(m)
 	assert.NotEmpty(t, entry.ID)
 }

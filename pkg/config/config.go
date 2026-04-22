@@ -46,9 +46,13 @@ type Config struct {
 	RedisPassword    string
 
 	// Fusion Engine
-	FusionDedupThreshold float64
-	DefaultTopK          int
-	RequestTimeout       time.Duration
+	FusionDedupThreshold  float64
+	FusionRelevanceWeight float64
+	FusionRecencyWeight   float64
+	FusionSourceWeight    float64
+	FusionTypeWeight      float64
+	DefaultTopK           int
+	RequestTimeout        time.Duration
 
 	// Consolidation
 	ConsolidationEnabled   bool
@@ -94,12 +98,16 @@ func DefaultConfig() *Config {
 		Neo4jPassword:           "helixmemory",
 		RedisEndpoint:           "localhost:6379",
 		FusionDedupThreshold:    0.92,
+		FusionRelevanceWeight:   0.40,
+		FusionRecencyWeight:     0.25,
+		FusionSourceWeight:      0.20,
+		FusionTypeWeight:        0.15,
 		DefaultTopK:             10,
 		RequestTimeout:          10 * time.Second,
 		ConsolidationEnabled:    true,
 		ConsolidationInterval:   30 * time.Minute,
 		ConsolidationBatchSize:  100,
-		MaxConcurrentQueries:    10,
+		MaxConcurrentQueries:    4,
 		CircuitBreakerThreshold: 5,
 		CircuitBreakerTimeout:   30 * time.Second,
 		EmbeddingModel:          "text-embedding-3-small",
@@ -115,6 +123,10 @@ func LoadConfig() (*Config, error) {
 		// Default values
 		Mode:                    getEnv("HELIX_MEMORY_MODE", "local"),
 		FusionDedupThreshold:    getEnvFloat("HELIX_MEMORY_FUSION_DEDUP_THRESHOLD", 0.92),
+		FusionRelevanceWeight:   getEnvFloat("HELIX_MEMORY_FUSION_RELEVANCE_WEIGHT", 0.40),
+		FusionRecencyWeight:     getEnvFloat("HELIX_MEMORY_FUSION_RECENCY_WEIGHT", 0.25),
+		FusionSourceWeight:      getEnvFloat("HELIX_MEMORY_FUSION_SOURCE_WEIGHT", 0.20),
+		FusionTypeWeight:        getEnvFloat("HELIX_MEMORY_FUSION_TYPE_WEIGHT", 0.15),
 		DefaultTopK:             getEnvInt("HELIX_MEMORY_DEFAULT_TOP_K", 10),
 		RequestTimeout:          getEnvDuration("HELIX_MEMORY_REQUEST_TIMEOUT", 10*time.Second),
 		ConsolidationEnabled:    getEnvBool("HELIX_MEMORY_CONSOLIDATION_ENABLED", true),
@@ -163,6 +175,17 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// FromEnv loads configuration from environment variables.
+// It is a convenience wrapper around LoadConfig that ignores validation
+// errors and falls back to DefaultConfig on failure.
+func FromEnv() *Config {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return DefaultConfig()
+	}
+	return cfg
 }
 
 // Validate checks if the configuration is valid.
