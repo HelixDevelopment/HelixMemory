@@ -111,7 +111,7 @@ func DefaultConfig() *Config {
 		CircuitBreakerThreshold: 5,
 		CircuitBreakerTimeout:   30 * time.Second,
 		EmbeddingModel:          "text-embedding-3-small",
-		EmbeddingEndpoint:       "http://localhost:7061/v1",
+		EmbeddingEndpoint:       "http://localhost:8100/v1",
 		EmbeddingDimension:      1536,
 		EnableMetrics:           true,
 	}
@@ -136,7 +136,7 @@ func LoadConfig() (*Config, error) {
 		CircuitBreakerThreshold: getEnvInt("HELIX_MEMORY_CIRCUIT_BREAKER_THRESHOLD", 5),
 		CircuitBreakerTimeout:   getEnvDuration("HELIX_MEMORY_CIRCUIT_BREAKER_TIMEOUT", 30*time.Second),
 		EmbeddingModel:          getEnv("HELIX_MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"),
-		EmbeddingEndpoint:       getEnv("HELIX_MEMORY_EMBEDDING_ENDPOINT", "http://localhost:7061/v1"),
+		EmbeddingEndpoint:       getEnv("HELIX_MEMORY_EMBEDDING_ENDPOINT", "http://localhost:8100/v1"),
 		EmbeddingDimension:      getEnvInt("HELIX_MEMORY_EMBEDDING_DIMENSION", 1536),
 		EnableMetrics:           getEnvBool("HELIX_MEMORY_ENABLE_METRICS", true),
 	}
