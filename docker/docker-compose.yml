@@ -4,6 +4,10 @@ services:
   letta-server:
     image: letta/letta:latest
     container_name: helixmemory-letta
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "8283:8283"
     environment:
@@ -20,6 +24,10 @@ services:
   mem0-api:
     image: mem0ai/mem0:latest
     container_name: helixmemory-mem0
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "8001:8001"
     environment:
@@ -38,6 +46,10 @@ services:
   cognee-api:
     image: topoteretes/cognee:latest
     container_name: helixmemory-cognee
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "8000:8000"
     environment:
@@ -61,6 +73,10 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: helixmemory-qdrant
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -75,6 +91,10 @@ services:
   neo4j:
     image: neo4j:5-community
     container_name: helixmemory-neo4j
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 2048
+    oom_score_adj: 500
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -92,6 +112,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: helixmemory-redis
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
@@ -106,6 +130,10 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: helixmemory-postgres
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "5432:5432"
     environment:
