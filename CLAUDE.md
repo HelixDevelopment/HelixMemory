@@ -20,7 +20,7 @@ This `CLAUDE.md` sits alongside several other agent/governance manuals at the re
 - `CONSTITUTION.md` — source of truth for all mandates (CONST-033, CONST-035, CONST-036–040, Article XI §11.9). When this file conflicts with the Constitution, the Constitution wins.
 - `AGENTS.md` — generic agent manual (40 KB; mirror anti-bluff rules here).
 - `CRUSH.md`, `QWEN.md` — sibling agent manuals for other CLI tools. Cascade rule changes to all of them.
-- `HelixCode/CLAUDE.md`, `HelixQA/CLAUDE.md`, `Challenges/CLAUDE.md` — submodule-scoped manuals; this root file inherits from them and they inherit from this one.
+- `helix_code/CLAUDE.md`, `helix_qa/CLAUDE.md`, `challenges/CLAUDE.md` — submodule-scoped manuals; this root file inherits from them and they inherit from this one.
 
 ---
 
@@ -78,7 +78,7 @@ No force push, force-with-lease push, history rewrite, branch deletion of `main`
 ## 3. HelixCode-Specific Architecture
 
 ### 3.1 Technology Stack
-- **Language**: Go — root meta-repo on `go 1.25.2`, inner Go application (`HelixCode/`) on `go 1.26`. Keep both modules current; do not downgrade.
+- **Language**: Go — root meta-repo on `go 1.25.2`, inner Go application (`helix_code/`) on `go 1.26`. Keep both modules current; do not downgrade.
 - **Module IDs**: root `dev.helix.code` (thin), inner `dev.helix.code` (full app + transitive deps).
 - **HTTP / API**: Gin v1.11.0, gorilla/websocket v1.5.3, gRPC v1.80.0.
 - **Persistence**: PostgreSQL 15+ via pgx/v5 + lib/pq; Redis 7+ via go-redis/v9.
@@ -90,10 +90,10 @@ No force push, force-with-lease push, history rewrite, branch deletion of `main`
 
 ### 3.2 Repository Layout — Meta-Repo + Submodules
 
-**This repo is a governance/meta-repo, not the Go application.** The actual Go binary lives in the `HelixCode/` subdirectory (a submodule). When an agent says "edit `internal/auth`," they almost always mean `HelixCode/internal/auth`, not the root `internal/`.
+**This repo is a governance/meta-repo, not the Go application.** The actual Go binary lives in the `helix_code/` subdirectory (a submodule). When an agent says "edit `internal/auth`," they almost always mean `helix_code/internal/auth`, not the root `internal/`.
 
 ```
-HelixCode/                                # ← repo root (governance + submodules)
+helix_code/                                # ← repo root (governance + submodules)
 ├── CLAUDE.md / AGENTS.md / CONSTITUTION.md / CRUSH.md / QWEN.md   # agent manuals
 ├── Makefile                              # governance gates only (see §3.4)
 ├── go.mod                                # thin root module (dev.helix.code, go 1.25.2)
@@ -109,22 +109,22 @@ HelixCode/                                # ← repo root (governance + submodul
 ├── docs/                                 # ARCHITECTURE.md, COMPLETE_*.md guides,
 │                                         #   bluff-proofing/, llms_verifier/, helix_qa/
 │
-├── HelixCode/      ← TRACKED SUBDIRECTORY (NOT a submodule — meta-repo's primary inner directory; circular reference if promoted; see §3.2.1)
-├── HelixQA/        ← SUBMODULE: QA / challenge-orchestration platform
-├── Challenges/     ← SUBMODULE: cross-cutting Challenge bank (Panoptic, banks/)
-├── Containers/     ← SUBMODULE: Docker/container artefacts
+├── helix_code/      ← TRACKED SUBDIRECTORY (NOT a submodule — meta-repo's primary inner directory; circular reference if promoted; see §3.2.1)
+├── helix_qa/        ← SUBMODULE: QA / challenge-orchestration platform
+├── challenges/     ← SUBMODULE: cross-cutting Challenge bank (Panoptic, banks/)
+├── containers/     ← SUBMODULE: Docker/container artefacts
 ├── Dependencies/   ← SUBMODULES: LLama_CPP, Ollama, HuggingFace_Hub, …
-├── Security/       ← SUBMODULE: security tooling
+├── security/       ← SUBMODULE: security tooling
 ├── Assets/         ← SUBMODULE: logos, themes, brand
-├── Github-Pages-Website/ ← SUBMODULE: marketing site
+├── github_pages_website/ ← SUBMODULE: marketing site
 ├── cli_agents/          ← reference CLI agents (aider, cline, plandex, openhands, …) — formerly Example_Projects/
 └── cli_agents_resources/ ← reference resources (Awesome-AI-Agents, Cheshire-Cat-Ai, …) — formerly Example_Resources/
 ```
 
-#### 3.2.1 Inner Go application — `HelixCode/` submodule
+#### 3.2.1 Inner Go application — `helix_code/` submodule
 
 ```
-HelixCode/HelixCode/                      # module dev.helix.code, go 1.26
+helix_code/helix_code/                      # module dev.helix.code, go 1.26
 ├── Makefile                              # real build/test targets (see §3.4)
 ├── cmd/
 │   ├── server/                           # HTTP server entry → bin/helixcode
@@ -158,14 +158,14 @@ HelixCode/HelixCode/                      # module dev.helix.code, go 1.26
 └── docker-compose.full-test.yml + .env.full-test    # zero-skip integration stack
 ```
 
-**Cardinal rule:** if a path in instructions doesn't start with `HelixCode/`, `HelixQA/`, etc., assume it is relative to the inner Go module and prefix with `HelixCode/`.
+**Cardinal rule:** if a path in instructions doesn't start with `helix_code/`, `helix_qa/`, etc., assume it is relative to the inner Go module and prefix with `helix_code/`.
 
 ### 3.3 Historical Bluffs — Resolved, Guard Against Regression
 
-The three patterns below were live bluffs in earlier revisions of `HelixCode/cmd/cli/main.go`. They have been fixed (verify with `grep -rn "simulate\|For now\|TODO implement\|placeholder" HelixCode/cmd/cli/main.go` — must return empty). Treat these as canonical anti-pattern examples; if a future change reintroduces any of them, the change is broken regardless of whether tests pass.
+The three patterns below were live bluffs in earlier revisions of `helix_code/cmd/cli/main.go`. They have been fixed (verify with `grep -rn "simulate\|For now\|TODO implement\|placeholder" helix_code/cmd/cli/main.go` — must return empty). Treat these as canonical anti-pattern examples; if a future change reintroduces any of them, the change is broken regardless of whether tests pass.
 
 #### BLUFF-001: LLM Generation is Simulated
-**Location**: `HelixCode/cmd/cli/main.go` → function `handleGenerate`
+**Location**: `helix_code/cmd/cli/main.go` → function `handleGenerate`
 **Status**: RESOLVED — now calls `provider.Generate` / `GenerateStream` directly. Do not regress.
 **Code Pattern**:
 ```go
@@ -188,7 +188,7 @@ fmt.Println(resp.Text)
 
 ### 3.4 Build & Test Commands
 
-Two Makefiles. The **root** Makefile only runs governance gates; the **inner** `HelixCode/Makefile` does real builds and tests. Always know which directory you are in.
+Two Makefiles. The **root** Makefile only runs governance gates; the **inner** `helix_code/Makefile` does real builds and tests. Always know which directory you are in.
 
 **Root governance gates** (run from repo root):
 ```bash
@@ -203,7 +203,7 @@ make ci-validate-all         # all governance gates in warn-mode
 ./helix start | stop | logs | shell          # Docker facade for the platform
 ```
 
-**Inner application** (run from `HelixCode/`):
+**Inner application** (run from `helix_code/`):
 ```bash
 make build                   # → bin/helixcode (server)
 make verify-compile          # quick compile-only sanity check
@@ -245,7 +245,7 @@ go test -v -race -coverprofile=cover.out ./internal/llm                  # one p
 
 **E2E challenges** (real, end-to-end, runtime evidence required):
 ```bash
-cd HelixCode/tests/e2e/challenges && go run cmd/runner/main.go -all
+cd helix_code/tests/e2e/challenges && go run cmd/runner/main.go -all
 # Or root-level cross-cutting Challenges:
 cd Challenges && make <target>
 ```
@@ -253,7 +253,7 @@ cd Challenges && make <target>
 **Anti-bluff smoke check** (must always pass):
 ```bash
 grep -rn "simulated\|for now\|TODO implement\|placeholder" \
-  HelixCode/internal HelixCode/cmd && echo "BLUFF FOUND" || echo "clean"
+  helix_code/internal helix_code/cmd && echo "BLUFF FOUND" || echo "clean"
 ```
 
 **Platform / mobile builds** (inner module):
@@ -264,7 +264,7 @@ make aurora-os && make harmony-os
 ```
 
 #### BLUFF-002: Model Listing is Hardcoded
-**Location**: `HelixCode/cmd/cli/main.go` → function `handleListModels`
+**Location**: `helix_code/cmd/cli/main.go` → function `handleListModels`
 **Status**: RESOLVED — must continue to query `c.providerManager.GetProviders()` per CONST-036/037 (LLMsVerifier is the single source of truth).
 **Correct Pattern**:
 ```go
@@ -286,7 +286,7 @@ func (c *CLI) handleListModels(ctx context.Context) error {
 ```
 
 #### BLUFF-003: Command Execution is Simulated
-**Location**: `HelixCode/cmd/cli/main.go` → function `handleCommand`
+**Location**: `helix_code/cmd/cli/main.go` → function `handleCommand`
 **Status**: RESOLVED — must continue to use `os/exec` via `exec.CommandContext` and surface real exit codes. Never replace with print-and-sleep.
 **Correct Pattern**:
 ```go
@@ -588,7 +588,7 @@ cd HelixCode && go test -count=1 ./...
 
 # 3. Anti-bluff scan
 grep -rn "simulated\|for now\|TODO implement\|placeholder" \
-  HelixCode/internal HelixCode/cmd && echo "BLUFF FOUND" || echo "clean"
+  helix_code/internal helix_code/cmd && echo "BLUFF FOUND" || echo "clean"
 
 # 4. Real LLM end-to-end (requires `make test-infra-up` first)
 curl -sS -X POST http://localhost:8080/api/v1/llm/generate \
@@ -687,7 +687,7 @@ Before ANY modification to `constitution/Constitution.md`, `constitution/CLAUDE.
 
 Two cooperating invariants:
 
-**(A) No-fakes-beyond-unit-tests.** Mocks, stubs, fakes, placeholders, `TODO`, `FIXME`, "for now", "in production this would", or empty-implementation patterns are PERMITTED only in unit-test sources (`*_test.go` files invoked without the integration build tag; `HelixCode/tests/unit/`; etc.). Every other test type — integration, E2E, full automation, security, DDoS, scaling, chaos, stress, performance, benchmarking, UI, UX, Challenges, HelixQA — MUST exercise the real, fully implemented HelixCode system against real infrastructure (real PostgreSQL, real Redis, real LLM endpoints, real containers, real captured devices). Production code (anything under `HelixCode/cmd/`, `HelixCode/applications/`, `HelixCode/internal/<pkg>/<file>.go` not ending `_test.go`) MUST NOT import from `HelixCode/internal/mocks/`.
+**(A) No-fakes-beyond-unit-tests.** Mocks, stubs, fakes, placeholders, `TODO`, `FIXME`, "for now", "in production this would", or empty-implementation patterns are PERMITTED only in unit-test sources (`*_test.go` files invoked without the integration build tag; `helix_code/tests/unit/`; etc.). Every other test type — integration, E2E, full automation, security, DDoS, scaling, chaos, stress, performance, benchmarking, UI, UX, Challenges, HelixQA — MUST exercise the real, fully implemented HelixCode system against real infrastructure (real PostgreSQL, real Redis, real LLM endpoints, real containers, real captured devices). Production code (anything under `helix_code/cmd/`, `helix_code/applications/`, `helix_code/internal/<pkg>/<file>.go` not ending `_test.go`) MUST NOT import from `helix_code/internal/mocks/`.
 
 **(B) 100% test-type coverage.** HelixCode's codebase MUST be covered by every supported test type the domain warrants:
 - **Unit** — fast, isolated, mocks permitted per (A).
@@ -703,12 +703,12 @@ Two cooperating invariants:
 - **Benchmarking** — micro + macro suites with historical p95-drift detection.
 - **UI** — visual-regression + DOM-state + interaction-flow coverage on every target platform's UI surface.
 - **UX** — flow-correctness + accessibility + i18n + visual-cue ordering (§11.4.23 composition).
-- **Challenges** — `vasic-digital/Challenges` submodule (at `./Challenges/`) fully incorporated; per-feature Challenge scripts with captured runtime evidence.
-- **HelixQA** — `HelixDevelopment/HelixQA` submodule (at `./HelixQA/`) fully incorporated; ALL written test banks executed; full autonomous QA sessions run as part of release gates with captured wire evidence per check.
+- **Challenges** — `vasic-digital/Challenges` submodule (at `./challenges/`) fully incorporated; per-feature Challenge scripts with captured runtime evidence.
+- **HelixQA** — `HelixDevelopment/HelixQA` submodule (at `./helix_qa/`) fully incorporated; ALL written test banks executed; full autonomous QA sessions run as part of release gates with captured wire evidence per check.
 
 **Required dependency submodules** (recursive per CONST-047):
-- Challenges — `git@github.com:vasic-digital/Challenges.git` — incorporated at `./Challenges/`.
-- HelixQA — `git@github.com:HelixDevelopment/HelixQA.git` — incorporated at `./HelixQA/`.
+- Challenges — `git@github.com:vasic-digital/Challenges.git` — incorporated at `./challenges/`.
+- HelixQA — `git@github.com:HelixDevelopment/HelixQA.git` — incorporated at `./helix_qa/`.
 - Any additional functionality submodules under `vasic-digital/*` / `HelixDevelopment/*` orgs that HelixCode depends on — incorporate rather than duplicate work the orgs already maintain.
 
 Submodule pointers MUST be bumped to upstream HEAD in the SAME commit as any dependent cascade work (CONST-049 step 7). Pointer drift = CONST-050 violation.
@@ -755,7 +755,7 @@ Constitution amendments require:
 
 > Verbatim user mandate (2026-05-15): *"naming convention for Submodules and directories (applied deep into hierarchy recursively) - all directories and Submodules MSUT HAVE lowercase names with space separator between the words of '_' character (snake-case)! All existing Submodules and directories which are not following this rule MUST BE renamed! However, since this will most likely break some of the functionalities renaming we do MUST BE applied to all references to particular Submodule or directory! ... There MUST BE reasonable exceptions for this rules - source code for programming languages or Submodules which apply different naming convention - Android, Java, Kotlin and others. ... Upstreams directory which all of our projects and Submodules have MUST BE renamed to the lowercase letters too, however root project containing the install_upstreams system command (it is exported in out paths in our .bashrc or .zshrc) MUST BE updated to fully work with both Upstreams and upstreams directory. ... NOTE: Rules lowercase / snake-case do apply to all project files as well and references to it and from them!"*
 
-Every directory, submodule, and file in HelixCode MUST use lowercase snake_case names. Existing non-compliant names (`HelixCode/`, `Challenges/`, `Containers/`, `HelixAgent/`, `HelixQA/`, `Security/`, `Github-Pages-Website/`, `Upstreams/`, `Dependencies/`, etc.) MUST be renamed as part of the phased migration opened by this clause. Every reference (configs, docs, links, source-code imports, governance files) MUST be updated atomically with the rename — reference drift after a rename is a CONST-052 violation of equal severity to the rename itself.
+Every directory, submodule, and file in HelixCode MUST use lowercase snake_case names. Existing non-compliant names (`helix_code/`, `challenges/`, `containers/`, `helix_agent/`, `helix_qa/`, `security/`, `github_pages_website/`, `Upstreams/`, `Dependencies/`, etc.) MUST be renamed as part of the phased migration opened by this clause. Every reference (configs, docs, links, source-code imports, governance files) MUST be updated atomically with the rename — reference drift after a rename is a CONST-052 violation of equal severity to the rename itself.
 
 **Common-sense exceptions (technology-preserving):** language-mandated case for Java/Kotlin/Android/Apple/C#/Swift INSIDE the language root (submodule root follows our convention; subtree follows language convention); vendor/upstream third-party submodules keep upstream names; build artefacts (`node_modules`, `__pycache__`, `.git`, `target`, `build`, `bin`) keep tool-mandated names. The test "does renaming break the technology?" trumps the rule.
 
