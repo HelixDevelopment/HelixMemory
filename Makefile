@@ -2,7 +2,7 @@
 # Module: digital.vasic.helixmemory
 
 .PHONY: build test test-race test-short test-integration test-security test-bench test-stress
-.PHONY: test-e2e test-coverage fmt vet lint clean help
+.PHONY: test-e2e test-coverage fmt vet lint clean help i18n-audit i18n-audit-selftest
 .PHONY: infra-start infra-stop infra-status challenge challenge-internal
 
 MODULE := digital.vasic.helixmemory
@@ -49,6 +49,15 @@ vet:
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed"; exit 1; }
 	golangci-lint run ./...
+
+# CONST-046 (No-Hardcoded-Content) audit gate. Programmatic backend → no user-facing
+# strings today; gate detects regressions (someone adds fmt.Println/Printf without
+# routing through pkg/i18n.T). Round 210 §11.4 — HelixMemory i18n migration kickoff.
+i18n-audit:
+	./scripts/i18n-audit.sh
+
+i18n-audit-selftest:
+	./scripts/i18n-audit.sh --self-test
 
 clean:
 	rm -f coverage.out coverage.html
