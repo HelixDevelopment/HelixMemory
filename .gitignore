@@ -1,35 +1,67 @@
-.env
-
-# Binaries
+# HelixMemory .gitignore — CONST-053 hardened (round-274)
+#
+# Class 1: Build artefacts
+/bin/
+/build/
+/dist/
+/out/
+target/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary
+*.a
+*.o
+*.class
+*.pyc
 *.test
 
-# Output
-*.out
+# Class 2: Cache files
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+.next/
+.cache/
+.gradle/
+.terraform/
 
-# IDE
-.idea/
-.vscode/
+# Class 3: Temp files
+*.tmp
 *.swp
 *.swo
-
-# OS
+*~
 .DS_Store
 Thumbs.db
+*.orig
+*.rej
+
+# Class 4: Sensitive-data files (.env.example placeholder allowed)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+id_rsa*
+id_ed25519*
+.netrc
+secrets/
+api_keys.sh
+
+# Class 5: Generated reports / logs
+*.log
+*.out
+coverage.html
+coverage.out
+htmlcov/
+
+# Class 6: OS/IDE personal state
+.idea/
+.history/
+.vscode/
 
 # Vendor (optional local)
 vendor/
-
-# Environment
-.env
-.env.local
-
-# Coverage
-coverage.html
-coverage.out

@@ -1,0 +1,52 @@
+[
+  {
+    "locale": "en",
+    "prompt": "Yesterday the user changed from PostgreSQL to MySQL",
+    "expect_type": "temporal",
+    "expect_keyword": "yesterday",
+    "expect_fused_count_same": 1,
+    "expect_fused_count_diff": 2,
+    "expect_key": "helixmemory_circuit_breaker_open",
+    "expect_translated": "circuit_breaker_open"
+  },
+  {
+    "locale": "es",
+    "prompt": "I prefer dark mode UI; my role is backend engineer",
+    "expect_type": "core",
+    "expect_keyword": "i prefer",
+    "expect_fused_count_same": 1,
+    "expect_fused_count_diff": 2,
+    "expect_key": "helixmemory_fusion_engine_ready",
+    "expect_translated": "fusion_engine_ready"
+  },
+  {
+    "locale": "ja",
+    "prompt": "How to install the package: step by step instructions",
+    "expect_type": "procedural",
+    "expect_keyword": "how to",
+    "expect_fused_count_same": 1,
+    "expect_fused_count_diff": 2,
+    "expect_key": "helixmemory_retrieve_started",
+    "expect_translated": "retrieve_started"
+  },
+  {
+    "locale": "sr-Latn",
+    "prompt": "The auth service depends on the user service and contains a JWT verifier",
+    "expect_type": "graph",
+    "expect_keyword": "depends on",
+    "expect_fused_count_same": 1,
+    "expect_fused_count_diff": 2,
+    "expect_key": "helixmemory_store_completed",
+    "expect_translated": "store_completed"
+  },
+  {
+    "locale": "de",
+    "prompt": "We discussed the migration in yesterday's session and mentioned three risks",
+    "expect_type": "temporal",
+    "expect_keyword": "yesterday",
+    "expect_fused_count_same": 1,
+    "expect_fused_count_diff": 2,
+    "expect_key": "helixmemory_consolidation_run",
+    "expect_translated": "consolidation_run"
+  }
+]
