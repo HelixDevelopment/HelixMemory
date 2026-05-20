@@ -9,20 +9,21 @@ import (
 	"sync"
 	"time"
 
+	"digital.vasic.helixmemory/pkg/i18n"
 	"digital.vasic.helixmemory/pkg/types"
 )
 
 // QualityReport summarizes memory quality metrics.
 type QualityReport struct {
-	TotalMemories      int       `json:"total_memories"`
-	HighConfidence     int       `json:"high_confidence"`
-	LowConfidence      int       `json:"low_confidence"`
-	Stale              int       `json:"stale"`
-	Contradictions     int       `json:"contradictions"`
-	AverageConfidence  float64   `json:"average_confidence"`
+	TotalMemories      int           `json:"total_memories"`
+	HighConfidence     int           `json:"high_confidence"`
+	LowConfidence      int           `json:"low_confidence"`
+	Stale              int           `json:"stale"`
+	Contradictions     int           `json:"contradictions"`
+	AverageConfidence  float64       `json:"average_confidence"`
 	AverageAge         time.Duration `json:"average_age"`
-	RecommendedActions []Action  `json:"recommended_actions"`
-	GeneratedAt        time.Time `json:"generated_at"`
+	RecommendedActions []Action      `json:"recommended_actions"`
+	GeneratedAt        time.Time     `json:"generated_at"`
 }
 
 // Action represents a recommended quality improvement action.
@@ -45,30 +46,30 @@ type Loop struct {
 
 // Config configures the quality loop.
 type Config struct {
-	Enabled             bool          `json:"enabled"`
-	Interval            time.Duration `json:"interval"`
-	StaleThreshold      time.Duration `json:"stale_threshold"`
-	LowConfidenceLimit  float64       `json:"low_confidence_limit"`
-	MaxMemoriesPerScan  int           `json:"max_memories_per_scan"`
+	Enabled            bool          `json:"enabled"`
+	Interval           time.Duration `json:"interval"`
+	StaleThreshold     time.Duration `json:"stale_threshold"`
+	LowConfidenceLimit float64       `json:"low_confidence_limit"`
+	MaxMemoriesPerScan int           `json:"max_memories_per_scan"`
 }
 
 // DefaultConfig returns default quality loop configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:             true,
-		Interval:            1 * time.Hour,
-		StaleThreshold:      30 * 24 * time.Hour, // 30 days
-		LowConfidenceLimit:  0.3,
-		MaxMemoriesPerScan:  500,
+		Enabled:            true,
+		Interval:           1 * time.Hour,
+		StaleThreshold:     30 * 24 * time.Hour, // 30 days
+		LowConfidenceLimit: 0.3,
+		MaxMemoriesPerScan: 500,
 	}
 }
 
 // LoopStats tracks quality loop execution metrics.
 type LoopStats struct {
-	TotalScans      int       `json:"total_scans"`
-	LastScanAt      time.Time `json:"last_scan_at"`
-	TotalPruned     int       `json:"total_pruned"`
-	TotalRefreshed  int       `json:"total_refreshed"`
+	TotalScans     int       `json:"total_scans"`
+	LastScanAt     time.Time `json:"last_scan_at"`
+	TotalPruned    int       `json:"total_pruned"`
+	TotalRefreshed int       `json:"total_refreshed"`
 }
 
 // NewLoop creates a quality improvement loop.
@@ -119,20 +120,27 @@ func (l *Loop) Analyze(ctx context.Context) (*QualityReport, error) {
 		report.AverageAge = totalAge / time.Duration(len(result.Entries))
 	}
 
-	// Generate recommended actions
+	// Generate recommended actions.
+	//
+	// CONST-046: recommended-action descriptions are surfaced to the caller
+	// inside the QualityReport — they MUST NOT be hardcoded English literals.
+	// The i18n seam owns the format string (helixmemory_ bundle); this call
+	// site supplies only the fmt args.
 	if report.Stale > 0 {
 		report.RecommendedActions = append(report.RecommendedActions, Action{
-			Type:        "prune",
-			Description: fmt.Sprintf("Remove %d stale memories (>%s old)", report.Stale, l.config.StaleThreshold),
-			Priority:    3,
+			Type: "prune",
+			Description: i18n.T("", i18n.BundlePrefix+"quality_action_prune_stale",
+				report.Stale, l.config.StaleThreshold),
+			Priority: 3,
 		})
 	}
 
 	if report.LowConfidence > 0 {
 		report.RecommendedActions = append(report.RecommendedActions, Action{
-			Type:        "validate",
-			Description: fmt.Sprintf("Re-validate %d low-confidence memories (<%0.1f)", report.LowConfidence, l.config.LowConfidenceLimit),
-			Priority:    2,
+			Type: "validate",
+			Description: i18n.T("", i18n.BundlePrefix+"quality_action_validate_low_confidence",
+				report.LowConfidence, l.config.LowConfidenceLimit),
+			Priority: 2,
 		})
 	}
 

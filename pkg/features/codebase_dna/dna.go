@@ -9,10 +9,20 @@ import (
 	"strings"
 	"time"
 
+	"digital.vasic.helixmemory/pkg/i18n"
 	"digital.vasic.helixmemory/pkg/types"
 
 	"github.com/google/uuid"
 )
+
+// dnaText resolves a user-facing codebase-DNA string through the i18n seam.
+//
+// CONST-046: detected-pattern and convention descriptions are surfaced to the
+// caller inside Profile structs — they MUST NOT be hardcoded English literals.
+// The key carries the mandatory helixmemory_ bundle prefix.
+func dnaText(key string) string {
+	return i18n.T("", i18n.BundlePrefix+key)
+}
 
 // Profile represents a codebase's DNA — its patterns, preferences, and conventions.
 type Profile struct {
@@ -31,10 +41,10 @@ type Profile struct {
 
 // Pattern represents a detected coding pattern.
 type Pattern struct {
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	Frequency   int     `json:"frequency"`
-	Confidence  float64 `json:"confidence"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Frequency   int      `json:"frequency"`
+	Confidence  float64  `json:"confidence"`
 	Examples    []string `json:"examples,omitempty"`
 }
 
@@ -48,7 +58,7 @@ type Preference struct {
 // Convention represents a project convention.
 type Convention struct {
 	Rule        string `json:"rule"`
-	Scope       string `json:"scope"` // file, package, module, project
+	Scope       string `json:"scope"`       // file, package, module, project
 	Enforcement string `json:"enforcement"` // strict, recommended, optional
 }
 
@@ -154,7 +164,7 @@ func (p *Profiler) detectPatterns(code, language string) []Pattern {
 		if strings.Contains(code, "interface {") || strings.Contains(code, "interface{") {
 			patterns = append(patterns, Pattern{
 				Name:        "interface_abstraction",
-				Description: "Uses Go interfaces for abstraction",
+				Description: dnaText("dna_pattern_interface_abstraction"),
 				Frequency:   strings.Count(code, "interface"),
 				Confidence:  0.9,
 			})
@@ -162,7 +172,7 @@ func (p *Profiler) detectPatterns(code, language string) []Pattern {
 		if strings.Contains(code, "func Test") {
 			patterns = append(patterns, Pattern{
 				Name:        "table_driven_tests",
-				Description: "Uses Go testing patterns",
+				Description: dnaText("dna_pattern_table_driven_tests"),
 				Frequency:   strings.Count(code, "func Test"),
 				Confidence:  0.85,
 			})
@@ -170,7 +180,7 @@ func (p *Profiler) detectPatterns(code, language string) []Pattern {
 		if strings.Contains(code, "context.Context") {
 			patterns = append(patterns, Pattern{
 				Name:        "context_propagation",
-				Description: "Propagates context through call chain",
+				Description: dnaText("dna_pattern_context_propagation"),
 				Frequency:   strings.Count(code, "context.Context"),
 				Confidence:  0.95,
 			})
@@ -178,7 +188,7 @@ func (p *Profiler) detectPatterns(code, language string) []Pattern {
 		if strings.Contains(code, "sync.Mutex") || strings.Contains(code, "sync.RWMutex") {
 			patterns = append(patterns, Pattern{
 				Name:        "mutex_concurrency",
-				Description: "Uses mutexes for concurrent access control",
+				Description: dnaText("dna_pattern_mutex_concurrency"),
 				Frequency:   strings.Count(code, "sync."),
 				Confidence:  0.9,
 			})
@@ -186,7 +196,7 @@ func (p *Profiler) detectPatterns(code, language string) []Pattern {
 		if strings.Contains(code, "fmt.Errorf") && strings.Contains(code, "%w") {
 			patterns = append(patterns, Pattern{
 				Name:        "error_wrapping",
-				Description: "Wraps errors with context using %w",
+				Description: dnaText("dna_pattern_error_wrapping"),
 				Frequency:   strings.Count(code, "%w"),
 				Confidence:  0.9,
 			})
@@ -195,7 +205,7 @@ func (p *Profiler) detectPatterns(code, language string) []Pattern {
 		if strings.Contains(code, "class ") && strings.Contains(code, "ABC") {
 			patterns = append(patterns, Pattern{
 				Name:        "abstract_base_classes",
-				Description: "Uses ABCs for interface definition",
+				Description: dnaText("dna_pattern_abstract_base_classes"),
 				Frequency:   1,
 				Confidence:  0.85,
 			})
@@ -241,7 +251,7 @@ func (p *Profiler) detectConventions(code, language string) []Convention {
 
 	if maxLineLen <= 100 {
 		convs = append(convs, Convention{
-			Rule:        "Line length <= 100 characters",
+			Rule:        dnaText("dna_convention_line_length"),
 			Scope:       "file",
 			Enforcement: "recommended",
 		})

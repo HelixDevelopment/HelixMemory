@@ -1,0 +1,44 @@
+# HelixMemory i18n bundle — English (en) baseline.
+#
+# CONST-046 (No-Hardcoded-Content) resource bundle. Every key carries the
+# mandatory `helixmemory_` prefix for cross-submodule bundle-merger uniqueness.
+#
+# Round-359 §11.4 — CONST-046 Phase 4: first batch of user-facing strings
+# migrated off static literals. These keys back surfaces an end user observes
+# directly: MCP tool descriptions (rendered in MCP clients), codebase-DNA
+# pattern descriptions (surfaced in Profile structs returned to callers), and
+# quality-loop recommended-action descriptions (surfaced in QualityReport).
+#
+# Format-string values follow Go fmt verb semantics — the bundle, NOT the
+# call site, owns the format string (CONST-046: callers MUST NOT pre-format).
+#
+# Consumers shipping additional locales MUST add a sibling file (e.g.
+# sr-Cyrl-RS.yaml) with the SAME key set; a missing key falls through to the
+# verbatim key per the Translator contract.
+
+# --- MCP bridge tool descriptions (end-user-facing in MCP clients) ----------
+helixmemory_mcp_tool_search_desc: "Search unified memory across all backends (Mem0, Cognee, Letta, Graphiti)"
+helixmemory_mcp_tool_add_desc: "Add a new memory to the unified memory system"
+helixmemory_mcp_tool_health_desc: "Check health of all memory backends"
+helixmemory_mcp_tool_get_desc: "Retrieve a specific memory by ID"
+helixmemory_mcp_tool_delete_desc: "Delete a memory by ID"
+helixmemory_mcp_param_query_desc: "Search query"
+helixmemory_mcp_param_top_k_desc: "Max results"
+helixmemory_mcp_param_user_filter_desc: "Filter by user"
+helixmemory_mcp_param_content_desc: "Memory content"
+helixmemory_mcp_param_mem_type_desc: "Memory type (fact, graph, core, temporal, episodic, procedural)"
+helixmemory_mcp_param_user_id_desc: "User ID"
+helixmemory_mcp_param_memory_id_desc: "Memory ID"
+
+# --- Codebase-DNA detected-pattern descriptions (surfaced in Profile) -------
+helixmemory_dna_pattern_interface_abstraction: "Uses Go interfaces for abstraction"
+helixmemory_dna_pattern_table_driven_tests: "Uses Go testing patterns"
+helixmemory_dna_pattern_context_propagation: "Propagates context through call chain"
+helixmemory_dna_pattern_mutex_concurrency: "Uses mutexes for concurrent access control"
+helixmemory_dna_pattern_error_wrapping: "Wraps errors with context using %%w"
+helixmemory_dna_pattern_abstract_base_classes: "Uses ABCs for interface definition"
+helixmemory_dna_convention_line_length: "Line length <= 100 characters"
+
+# --- Quality-loop recommended-action descriptions (surfaced in QualityReport)
+helixmemory_quality_action_prune_stale: "Remove %d stale memories (>%s old)"
+helixmemory_quality_action_validate_low_confidence: "Re-validate %d low-confidence memories (<%0.1f)"

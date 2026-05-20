@@ -22,15 +22,17 @@ func TestNoopTranslator_ReturnsKeyVerbatim(t *testing.T) {
 	}
 }
 
-// TestPackageDefaults confirms the package-level seam starts on NoopTranslator.
+// TestPackageDefaults confirms the package-level seam starts on the
+// embedded-bundle BundleTranslator (round-359: real English out of the box).
 func TestPackageDefaults(t *testing.T) {
 	resetTranslator(t)
-	if _, ok := Default().(NoopTranslator); !ok {
-		t.Fatalf("Default() must return NoopTranslator before any Set; got %T", Default())
+	if _, ok := Default().(*BundleTranslator); !ok {
+		t.Fatalf("Default() must return *BundleTranslator after round-359; got %T", Default())
 	}
-	out := T("", BundlePrefix+"hello")
-	if out != "hello" {
-		t.Fatalf("T() fall-through mismatch: got %q want %q", out, "hello")
+	// An unknown key still falls through to the verbatim prefix-stripped key.
+	out := T("", BundlePrefix+"hello_unknown_key")
+	if out != "hello_unknown_key" {
+		t.Fatalf("T() fall-through mismatch for unknown key: got %q want %q", out, "hello_unknown_key")
 	}
 }
 
@@ -39,8 +41,8 @@ func TestSet_RegistersAndRestoresAndNilResets(t *testing.T) {
 	resetTranslator(t)
 	stub := &recordingTranslator{}
 	prev := Set(stub)
-	if _, ok := prev.(NoopTranslator); !ok {
-		t.Fatalf("Set must return the previous translator (NoopTranslator initially); got %T", prev)
+	if _, ok := prev.(*BundleTranslator); !ok {
+		t.Fatalf("Set must return the previous translator (*BundleTranslator after round-359); got %T", prev)
 	}
 	out := T("sr-Cyrl-RS", BundlePrefix+"err_x", "arg1")
 	if out != "stub:sr-Cyrl-RS:"+BundlePrefix+"err_x" {
@@ -49,10 +51,10 @@ func TestSet_RegistersAndRestoresAndNilResets(t *testing.T) {
 	if len(stub.calls) != 1 || stub.calls[0].locale != "sr-Cyrl-RS" {
 		t.Fatalf("stub did not record the call: %#v", stub.calls)
 	}
-	// nil resets to Noop.
+	// nil resets to the package default (BundleTranslator).
 	Set(nil)
-	if _, ok := Default().(NoopTranslator); !ok {
-		t.Fatalf("Set(nil) must reset to NoopTranslator; got %T", Default())
+	if _, ok := Default().(*BundleTranslator); !ok {
+		t.Fatalf("Set(nil) must reset to *BundleTranslator; got %T", Default())
 	}
 }
 

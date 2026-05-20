@@ -2,15 +2,27 @@
 
 CONST-046 (No-Hardcoded-Content) resource bundle for HelixMemory.
 
-## Status: skeleton — zero user-facing strings migrated yet
+## Status: active — round-359 CONST-046 Phase 4 migrated the first 21 keys
 
-HelixMemory is a programmatic SDK / memory-fusion backend:
-- No CLI (no `cmd/` directory)
-- No stdout / `fmt.Println` / `fmt.Printf` in production code
+`en.yaml` ships the English baseline. Round-359 §11.4 migrated 21 genuinely
+user-facing strings off static literals:
+
+- **MCP bridge tool descriptions** (12 keys, `helixmemory_mcp_*`) — surfaced in
+  MCP clients via `mcp_bridge.Bridge.ListTools` / `ListToolsLocalized`.
+- **Codebase-DNA pattern + convention descriptions** (7 keys,
+  `helixmemory_dna_*`) — surfaced in `codebase_dna.Profile` structs.
+- **Quality-loop recommended-action descriptions** (2 parametric keys,
+  `helixmemory_quality_action_*`) — surfaced in `quality_loop.QualityReport`.
+
+The bundle-backed `BundleTranslator` (`pkg/i18n/bundle.go`) loads these via
+`//go:embed` and is the package-default translator, so the SDK surfaces real
+English out of the box. Consumers register a locale-aware translator via
+`i18n.Set` for additional locales.
+
+The remaining `fmt.Errorf` / `zap` surfaces stay English-only by design:
 - All `fmt.Errorf` surfaces are developer-facing error wraps (operator/dev audience, English-only per CONST-046 §11.4 carve-out for log/operator surfaces)
 - All `zap` logger calls are structured operator logs (English-only by design — grep/dedupe/alerting depend on stable English keys)
-
-Per round-210 task scope: a programmatic memory backend with zero user-facing strings is the canonical **no-op infra pattern** — the translator + bundle are wired up so any future user-facing surface (REPL, REST API human-readable messages, future CLI) lands on a CONST-046-clean seam from line one.
+- Prometheus metric `Help:` strings are operator-dashboard metadata, English-only by design.
 
 ## Adding a user-facing string
 

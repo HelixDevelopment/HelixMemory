@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"digital.vasic.helixmemory/pkg/i18n"
 	"digital.vasic.helixmemory/pkg/types"
 )
 
@@ -21,8 +22,8 @@ type Tool struct {
 
 // ToolCall represents an incoming MCP tool call.
 type ToolCall struct {
-	Name   string          `json:"name"`
-	Input  json.RawMessage `json:"input"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
 }
 
 // ToolResult represents the result of a tool call.
@@ -41,38 +42,52 @@ func NewBridge(provider types.MemoryProvider) *Bridge {
 	return &Bridge{provider: provider}
 }
 
-// ListTools returns all available MCP tools.
+// ListTools returns all available MCP tools with descriptions rendered in the
+// active translator's default locale. Equivalent to ListToolsLocalized("").
 func (b *Bridge) ListTools() []Tool {
+	return b.ListToolsLocalized("")
+}
+
+// ListToolsLocalized returns all available MCP tools with every user-facing
+// description and parameter helper text rendered for the given BCP-47 locale.
+//
+// CONST-046: tool descriptions are end-user-facing surfaces (rendered in MCP
+// clients) — they MUST NOT be hardcoded English literals. Every string here
+// is resolved through the i18n seam against the helixmemory_ bundle so a
+// consumer that registers a locale-aware translator (i18n.Set) surfaces
+// localised text without any change to this file.
+func (b *Bridge) ListToolsLocalized(locale string) []Tool {
+	t := func(key string) string { return i18n.T(locale, i18n.BundlePrefix+key) }
 	return []Tool{
 		{
 			Name:        "memory_search",
-			Description: "Search unified memory across all backends (Mem0, Cognee, Letta, Graphiti)",
+			Description: t("mcp_tool_search_desc"),
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":   map[string]string{"type": "string", "description": "Search query"},
-					"top_k":   map[string]interface{}{"type": "integer", "description": "Max results", "default": 10},
-					"user_id": map[string]string{"type": "string", "description": "Filter by user"},
+					"query":   map[string]string{"type": "string", "description": t("mcp_param_query_desc")},
+					"top_k":   map[string]interface{}{"type": "integer", "description": t("mcp_param_top_k_desc"), "default": 10},
+					"user_id": map[string]string{"type": "string", "description": t("mcp_param_user_filter_desc")},
 				},
 				"required": []string{"query"},
 			},
 		},
 		{
 			Name:        "memory_add",
-			Description: "Add a new memory to the unified memory system",
+			Description: t("mcp_tool_add_desc"),
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"content": map[string]string{"type": "string", "description": "Memory content"},
-					"type":    map[string]string{"type": "string", "description": "Memory type (fact, graph, core, temporal, episodic, procedural)"},
-					"user_id": map[string]string{"type": "string", "description": "User ID"},
+					"content": map[string]string{"type": "string", "description": t("mcp_param_content_desc")},
+					"type":    map[string]string{"type": "string", "description": t("mcp_param_mem_type_desc")},
+					"user_id": map[string]string{"type": "string", "description": t("mcp_param_user_id_desc")},
 				},
 				"required": []string{"content"},
 			},
 		},
 		{
 			Name:        "memory_health",
-			Description: "Check health of all memory backends",
+			Description: t("mcp_tool_health_desc"),
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -80,22 +95,22 @@ func (b *Bridge) ListTools() []Tool {
 		},
 		{
 			Name:        "memory_get",
-			Description: "Retrieve a specific memory by ID",
+			Description: t("mcp_tool_get_desc"),
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"id": map[string]string{"type": "string", "description": "Memory ID"},
+					"id": map[string]string{"type": "string", "description": t("mcp_param_memory_id_desc")},
 				},
 				"required": []string{"id"},
 			},
 		},
 		{
 			Name:        "memory_delete",
-			Description: "Delete a memory by ID",
+			Description: t("mcp_tool_delete_desc"),
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"id": map[string]string{"type": "string", "description": "Memory ID"},
+					"id": map[string]string{"type": "string", "description": t("mcp_param_memory_id_desc")},
 				},
 				"required": []string{"id"},
 			},

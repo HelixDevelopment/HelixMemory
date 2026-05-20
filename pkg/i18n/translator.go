@@ -16,15 +16,15 @@
 // the canonical English form for grep/dedupe/alerting.
 //
 // Nonetheless we ship this infra now so:
-//   1. CONST-051(B) decoupling stays clean — no consumer (HelixCode et al.)
-//      injects its own translator implementation by reaching into the
-//      submodule's internals; instead it provides one via Set.
-//   2. Any future user-facing surface added to HelixMemory (e.g. a future
-//      CLI for `helixmemory dump`, a REST API surfacing human messages, or
-//      an interactive REPL) lands on a ready translator seam from line one.
-//   3. The audit gate already locks the codebase in CONST-046-clean state
-//      so a regression (someone hardcodes a new printable banner) trips the
-//      gate, not a post-mortem.
+//  1. CONST-051(B) decoupling stays clean — no consumer (HelixCode et al.)
+//     injects its own translator implementation by reaching into the
+//     submodule's internals; instead it provides one via Set.
+//  2. Any future user-facing surface added to HelixMemory (e.g. a future
+//     CLI for `helixmemory dump`, a REST API surfacing human messages, or
+//     an interactive REPL) lands on a ready translator seam from line one.
+//  3. The audit gate already locks the codebase in CONST-046-clean state
+//     so a regression (someone hardcodes a new printable banner) trips the
+//     gate, not a post-mortem.
 //
 // Design follows the canonical 3-layer pattern established across the
 // HelixCode programme (round 92 onward): Translator interface + NoopTranslator
@@ -87,8 +87,21 @@ const BundlePrefix = "helixmemory_"
 
 var (
 	mu     sync.RWMutex
-	active Translator = NoopTranslator{}
+	active Translator = defaultTranslator()
 )
+
+// defaultTranslator returns the package-default translator. It prefers the
+// embedded-bundle BundleTranslator (so the SDK surfaces real English text
+// out of the box per CONST-046 / round-359), and falls back to NoopTranslator
+// only if the embedded bundle fails to load — that fallback keeps the
+// fail-loud contract (key verbatim) rather than panicking at import time.
+func defaultTranslator() Translator {
+	bt, err := NewBundleTranslator("en")
+	if err != nil {
+		return NoopTranslator{}
+	}
+	return bt
+}
 
 // Default returns the currently-registered translator (NoopTranslator by default).
 // Goroutine-safe.
@@ -99,7 +112,8 @@ func Default() Translator {
 }
 
 // Set registers a new translator and returns the previous one. Pass nil to
-// reset to NoopTranslator. Goroutine-safe.
+// reset to the package default (the embedded-bundle BundleTranslator, or
+// NoopTranslator if the bundle failed to load). Goroutine-safe.
 //
 // CONST-051(B) reminder: this is the ONLY supported way for a consumer to
 // inject its translator — HelixMemory MUST NOT reach back into the parent
@@ -110,7 +124,7 @@ func Set(t Translator) Translator {
 	defer mu.Unlock()
 	prev := active
 	if t == nil {
-		active = NoopTranslator{}
+		active = defaultTranslator()
 	} else {
 		active = t
 	}
