@@ -277,3 +277,37 @@ func TestBridge_HandleToolCall_InvalidJSON(t *testing.T) {
 	assert.True(t, result.IsError)
 	assert.Contains(t, result.Content, "invalid input")
 }
+
+// TestBridge_ResultMsg_I18nSeam is the CONST-046 round-437 proof: every
+// ToolResult.Content string is resolved through the i18n seam, not a hardcoded
+// literal. resultMsg MUST return the bundle-backed English text (non-empty,
+// non-verbatim key). Paired mutation: deleting any key from en.yaml flips its
+// lookup to the verbatim key string and FAILs this test.
+func TestBridge_ResultMsg_I18nSeam(t *testing.T) {
+	cases := []struct {
+		key      string
+		args     []interface{}
+		wantSub  string
+		wantArgs []string
+	}{
+		{"mcp_result_unknown_tool", []interface{}{"memory_x"}, "unknown tool", []string{"memory_x"}},
+		{"mcp_result_invalid_input", []interface{}{"bad"}, "invalid input", []string{"bad"}},
+		{"mcp_result_search_error", []interface{}{"boom"}, "search error", []string{"boom"}},
+		{"mcp_result_add_error", []interface{}{"boom"}, "add error", []string{"boom"}},
+		{"mcp_result_get_error", []interface{}{"boom"}, "get error", []string{"boom"}},
+		{"mcp_result_delete_error", []interface{}{"boom"}, "delete error", []string{"boom"}},
+		{"mcp_result_unhealthy", []interface{}{"down"}, "unhealthy", []string{"down"}},
+		{"mcp_result_add_success", nil, "memory added successfully", nil},
+		{"mcp_result_health_ok", nil, "all memory backends healthy", nil},
+		{"mcp_result_delete_success", nil, "memory deleted successfully", nil},
+	}
+	for _, tc := range cases {
+		got := resultMsg(tc.key, tc.args...)
+		require.NotEmpty(t, got, "key %q resolved empty", tc.key)
+		assert.NotEqual(t, tc.key, got, "key %q resolved verbatim (not in bundle)", tc.key)
+		assert.Contains(t, got, tc.wantSub, "key %q missing expected substring", tc.key)
+		for _, a := range tc.wantArgs {
+			assert.Contains(t, got, a, "key %q did not substitute arg %q", tc.key, a)
+		}
+	}
+}

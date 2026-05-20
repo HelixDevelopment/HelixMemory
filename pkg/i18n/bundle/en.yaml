@@ -42,3 +42,34 @@ helixmemory_dna_convention_line_length: "Line length <= 100 characters"
 # --- Quality-loop recommended-action descriptions (surfaced in QualityReport)
 helixmemory_quality_action_prune_stale: "Remove %d stale memories (>%s old)"
 helixmemory_quality_action_validate_low_confidence: "Re-validate %d low-confidence memories (<%0.1f)"
+
+# --- MCP bridge tool-call result content (end-user-facing in MCP clients) ----
+# Round-437 §11.4 — CONST-046 Phase 4: ToolResult.Content strings are returned
+# verbatim to the user inside an MCP client UI, so they are end-user-facing
+# surfaces and MUST resolve through the i18n seam.
+helixmemory_mcp_result_unknown_tool: "unknown tool: %s"
+helixmemory_mcp_result_invalid_input: "invalid input: %v"
+helixmemory_mcp_result_search_error: "search error: %v"
+helixmemory_mcp_result_add_error: "add error: %v"
+helixmemory_mcp_result_get_error: "get error: %v"
+helixmemory_mcp_result_delete_error: "delete error: %v"
+helixmemory_mcp_result_unhealthy: "unhealthy: %v"
+helixmemory_mcp_result_add_success: "memory added successfully"
+helixmemory_mcp_result_health_ok: "all memory backends healthy"
+helixmemory_mcp_result_delete_success: "memory deleted successfully"
+
+# --- Prometheus metric Help text (operator-facing in Prometheus/Grafana UIs) -
+# Round-437 §11.4 — CONST-046 Phase 4: Prometheus `Help:` text is rendered to
+# humans in Prometheus/Grafana metric-explorer UIs, so it is a user-facing
+# surface and MUST resolve through the i18n seam rather than be a static literal.
+helixmemory_metric_help_search_latency: "Search operation latency in seconds"
+helixmemory_metric_help_search_total: "Total number of search operations"
+helixmemory_metric_help_add_total: "Total number of add operations"
+helixmemory_metric_help_add_latency: "Add operation latency in seconds"
+helixmemory_metric_help_provider_health: "Provider health status (1=healthy, 0=unhealthy)"
+helixmemory_metric_help_fusion_entries: "Number of entries in fused results"
+helixmemory_metric_help_fusion_deduped: "Total number of deduplicated entries"
+helixmemory_metric_help_consolidation_runs: "Total number of consolidation runs"
+helixmemory_metric_help_consolidation_duration: "Consolidation run duration in seconds"
+helixmemory_metric_help_circuit_breaker_state: "Circuit breaker state (0=closed, 1=open, 2=half-open)"
+helixmemory_metric_help_active_providers: "Number of active memory providers"

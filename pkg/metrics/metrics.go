@@ -3,21 +3,32 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"digital.vasic.helixmemory/pkg/i18n"
 )
+
+// helpText renders a Prometheus metric Help string for key through the i18n
+// seam (CONST-046 round-437). Prometheus `Help:` text is rendered to humans
+// in Prometheus/Grafana metric-explorer UIs, so it is a user-facing surface
+// and MUST NOT be a hardcoded English literal. The empty locale means
+// "translator default"; the bundle — not this call site — owns the text.
+func helpText(key string) string {
+	return i18n.T("", i18n.BundlePrefix+key)
+}
 
 // Metrics holds all HelixMemory Prometheus metrics.
 type Metrics struct {
-	SearchLatency    *prometheus.HistogramVec
-	SearchTotal      *prometheus.CounterVec
-	AddTotal         *prometheus.CounterVec
-	AddLatency       *prometheus.HistogramVec
-	ProviderHealth   *prometheus.GaugeVec
-	FusionEntries    *prometheus.HistogramVec
-	FusionDeduped    *prometheus.CounterVec
-	ConsolidationRuns *prometheus.CounterVec
+	SearchLatency         *prometheus.HistogramVec
+	SearchTotal           *prometheus.CounterVec
+	AddTotal              *prometheus.CounterVec
+	AddLatency            *prometheus.HistogramVec
+	ProviderHealth        *prometheus.GaugeVec
+	FusionEntries         *prometheus.HistogramVec
+	FusionDeduped         *prometheus.CounterVec
+	ConsolidationRuns     *prometheus.CounterVec
 	ConsolidationDuration *prometheus.HistogramVec
 	CircuitBreakerState   *prometheus.GaugeVec
-	ActiveProviders  prometheus.Gauge
+	ActiveProviders       prometheus.Gauge
 }
 
 // NewMetrics creates and registers all HelixMemory metrics.
@@ -27,7 +38,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "helixmemory",
 				Name:      "search_latency_seconds",
-				Help:      "Search operation latency in seconds",
+				Help:      helpText("metric_help_search_latency"),
 				Buckets:   prometheus.ExponentialBuckets(0.001, 2, 12),
 			},
 			[]string{"source", "status"},
@@ -36,7 +47,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "helixmemory",
 				Name:      "search_total",
-				Help:      "Total number of search operations",
+				Help:      helpText("metric_help_search_total"),
 			},
 			[]string{"source", "status"},
 		),
@@ -44,7 +55,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "helixmemory",
 				Name:      "add_total",
-				Help:      "Total number of add operations",
+				Help:      helpText("metric_help_add_total"),
 			},
 			[]string{"source", "type", "status"},
 		),
@@ -52,7 +63,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "helixmemory",
 				Name:      "add_latency_seconds",
-				Help:      "Add operation latency in seconds",
+				Help:      helpText("metric_help_add_latency"),
 				Buckets:   prometheus.ExponentialBuckets(0.001, 2, 12),
 			},
 			[]string{"source", "status"},
@@ -61,7 +72,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.GaugeOpts{
 				Namespace: "helixmemory",
 				Name:      "provider_healthy",
-				Help:      "Provider health status (1=healthy, 0=unhealthy)",
+				Help:      helpText("metric_help_provider_health"),
 			},
 			[]string{"source"},
 		),
@@ -69,7 +80,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "helixmemory",
 				Name:      "fusion_entries_count",
-				Help:      "Number of entries in fused results",
+				Help:      helpText("metric_help_fusion_entries"),
 				Buckets:   prometheus.LinearBuckets(0, 5, 20),
 			},
 			[]string{},
@@ -78,7 +89,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "helixmemory",
 				Name:      "fusion_deduplicated_total",
-				Help:      "Total number of deduplicated entries",
+				Help:      helpText("metric_help_fusion_deduped"),
 			},
 			[]string{},
 		),
@@ -86,7 +97,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "helixmemory",
 				Name:      "consolidation_runs_total",
-				Help:      "Total number of consolidation runs",
+				Help:      helpText("metric_help_consolidation_runs"),
 			},
 			[]string{"status"},
 		),
@@ -94,7 +105,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "helixmemory",
 				Name:      "consolidation_duration_seconds",
-				Help:      "Consolidation run duration in seconds",
+				Help:      helpText("metric_help_consolidation_duration"),
 				Buckets:   prometheus.ExponentialBuckets(0.1, 2, 10),
 			},
 			[]string{},
@@ -103,7 +114,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.GaugeOpts{
 				Namespace: "helixmemory",
 				Name:      "circuit_breaker_state",
-				Help:      "Circuit breaker state (0=closed, 1=open, 2=half-open)",
+				Help:      helpText("metric_help_circuit_breaker_state"),
 			},
 			[]string{"source"},
 		),
@@ -111,7 +122,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			prometheus.GaugeOpts{
 				Namespace: "helixmemory",
 				Name:      "active_providers",
-				Help:      "Number of active memory providers",
+				Help:      helpText("metric_help_active_providers"),
 			},
 		),
 	}

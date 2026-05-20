@@ -40,6 +40,82 @@ var round359MigratedKeys = []string{
 	"helixmemory_quality_action_validate_low_confidence",
 }
 
+// round437ParametricKeys are the round-437 format-string keys that take fmt
+// args and so cannot be asserted by a plain equality check.
+var round437ParametricKeys = map[string]struct{}{
+	"helixmemory_mcp_result_unknown_tool":  {},
+	"helixmemory_mcp_result_invalid_input": {},
+	"helixmemory_mcp_result_search_error":  {},
+	"helixmemory_mcp_result_add_error":     {},
+	"helixmemory_mcp_result_get_error":     {},
+	"helixmemory_mcp_result_delete_error":  {},
+	"helixmemory_mcp_result_unhealthy":     {},
+}
+
+// round437MigratedKeys is the full set of user-facing keys migrated off
+// hardcoded literals in round-437 (MCP ToolResult.Content strings + Prometheus
+// metric Help text). Every one MUST resolve to a non-empty, non-verbatim
+// English string under the embedded bundle.
+var round437MigratedKeys = []string{
+	"helixmemory_mcp_result_unknown_tool",
+	"helixmemory_mcp_result_invalid_input",
+	"helixmemory_mcp_result_search_error",
+	"helixmemory_mcp_result_add_error",
+	"helixmemory_mcp_result_get_error",
+	"helixmemory_mcp_result_delete_error",
+	"helixmemory_mcp_result_unhealthy",
+	"helixmemory_mcp_result_add_success",
+	"helixmemory_mcp_result_health_ok",
+	"helixmemory_mcp_result_delete_success",
+	"helixmemory_metric_help_search_latency",
+	"helixmemory_metric_help_search_total",
+	"helixmemory_metric_help_add_total",
+	"helixmemory_metric_help_add_latency",
+	"helixmemory_metric_help_provider_health",
+	"helixmemory_metric_help_fusion_entries",
+	"helixmemory_metric_help_fusion_deduped",
+	"helixmemory_metric_help_consolidation_runs",
+	"helixmemory_metric_help_consolidation_duration",
+	"helixmemory_metric_help_circuit_breaker_state",
+	"helixmemory_metric_help_active_providers",
+}
+
+// TestRound437MigratedKeys_ResolveNonVerbatim is the CONST-046 proof for the
+// round-437 batch: every migrated key MUST resolve to a non-empty string that
+// is NOT the verbatim (prefix-stripped) key — that proves the literal really
+// moved into the embedded bundle. Paired mutation: deleting any key line from
+// en.yaml flips its lookup to verbatim and FAILs this test.
+func TestRound437MigratedKeys_ResolveNonVerbatim(t *testing.T) {
+	bt, err := NewBundleTranslator("en")
+	if err != nil {
+		t.Fatalf("NewBundleTranslator(en): %v", err)
+	}
+	for _, key := range round437MigratedKeys {
+		got := bt.Translate("en", key)
+		if got == "" {
+			t.Errorf("key %q resolved to empty string", key)
+		}
+		if got == strings.TrimPrefix(key, BundlePrefix) {
+			t.Errorf("key %q resolved verbatim (not in bundle): %q", key, got)
+		}
+	}
+}
+
+// TestRound437ParametricKeys_Substitute confirms the parametric round-437 keys
+// actually consume their fmt args (the bundle owns the format string).
+func TestRound437ParametricKeys_Substitute(t *testing.T) {
+	bt, err := NewBundleTranslator("en")
+	if err != nil {
+		t.Fatalf("NewBundleTranslator(en): %v", err)
+	}
+	for key := range round437ParametricKeys {
+		got := bt.Translate("en", key, "SENTINEL")
+		if !strings.Contains(got, "SENTINEL") {
+			t.Errorf("parametric key %q did not substitute arg: %q", key, got)
+		}
+	}
+}
+
 // TestNewBundleTranslator_LoadsEmbeddedEn confirms the embedded en.yaml loads
 // and the default-locale guard accepts it.
 func TestNewBundleTranslator_LoadsEmbeddedEn(t *testing.T) {

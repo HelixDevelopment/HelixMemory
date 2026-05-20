@@ -6,12 +6,20 @@ package mcp_bridge
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"digital.vasic.helixmemory/pkg/i18n"
 	"digital.vasic.helixmemory/pkg/types"
 )
+
+// resultMsg renders a user-facing MCP ToolResult.Content string for key
+// through the i18n seam (CONST-046 round-437). ToolResult.Content is returned
+// verbatim to the user inside an MCP client UI, so it MUST NOT be a hardcoded
+// English literal. The empty locale means "translator default"; the bundle —
+// not this call site — owns the format string.
+func resultMsg(key string, args ...interface{}) string {
+	return i18n.T("", i18n.BundlePrefix+key, args...)
+}
 
 // Tool represents an MCP tool exposed by the memory bridge.
 type Tool struct {
@@ -132,7 +140,7 @@ func (b *Bridge) HandleToolCall(ctx context.Context, call *ToolCall) *ToolResult
 	case "memory_delete":
 		return b.handleDelete(ctx, call.Input)
 	default:
-		return &ToolResult{Content: fmt.Sprintf("unknown tool: %s", call.Name), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_unknown_tool", call.Name), IsError: true}
 	}
 }
 
@@ -143,7 +151,7 @@ func (b *Bridge) handleSearch(ctx context.Context, input json.RawMessage) *ToolR
 		UserID string `json:"user_id"`
 	}
 	if err := json.Unmarshal(input, &params); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_invalid_input", err), IsError: true}
 	}
 
 	if params.TopK <= 0 {
@@ -158,7 +166,7 @@ func (b *Bridge) handleSearch(ctx context.Context, input json.RawMessage) *ToolR
 
 	result, err := b.provider.Search(ctx, req)
 	if err != nil {
-		return &ToolResult{Content: fmt.Sprintf("search error: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_search_error", err), IsError: true}
 	}
 
 	data, _ := json.Marshal(result)
@@ -172,7 +180,7 @@ func (b *Bridge) handleAdd(ctx context.Context, input json.RawMessage) *ToolResu
 		UserID  string `json:"user_id"`
 	}
 	if err := json.Unmarshal(input, &params); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_invalid_input", err), IsError: true}
 	}
 
 	memType := types.MemoryTypeFact
@@ -189,17 +197,17 @@ func (b *Bridge) handleAdd(ctx context.Context, input json.RawMessage) *ToolResu
 	}
 
 	if err := b.provider.Add(ctx, entry); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("add error: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_add_error", err), IsError: true}
 	}
 
-	return &ToolResult{Content: "memory added successfully"}
+	return &ToolResult{Content: resultMsg("mcp_result_add_success")}
 }
 
 func (b *Bridge) handleHealth(ctx context.Context) *ToolResult {
 	if err := b.provider.Health(ctx); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("unhealthy: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_unhealthy", err), IsError: true}
 	}
-	return &ToolResult{Content: "all memory backends healthy"}
+	return &ToolResult{Content: resultMsg("mcp_result_health_ok")}
 }
 
 func (b *Bridge) handleGet(ctx context.Context, input json.RawMessage) *ToolResult {
@@ -207,12 +215,12 @@ func (b *Bridge) handleGet(ctx context.Context, input json.RawMessage) *ToolResu
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(input, &params); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_invalid_input", err), IsError: true}
 	}
 
 	entry, err := b.provider.Get(ctx, params.ID)
 	if err != nil {
-		return &ToolResult{Content: fmt.Sprintf("get error: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_get_error", err), IsError: true}
 	}
 
 	data, _ := json.Marshal(entry)
@@ -224,12 +232,12 @@ func (b *Bridge) handleDelete(ctx context.Context, input json.RawMessage) *ToolR
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(input, &params); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_invalid_input", err), IsError: true}
 	}
 
 	if err := b.provider.Delete(ctx, params.ID); err != nil {
-		return &ToolResult{Content: fmt.Sprintf("delete error: %v", err), IsError: true}
+		return &ToolResult{Content: resultMsg("mcp_result_delete_error", err), IsError: true}
 	}
 
-	return &ToolResult{Content: "memory deleted successfully"}
+	return &ToolResult{Content: resultMsg("mcp_result_delete_success")}
 }
