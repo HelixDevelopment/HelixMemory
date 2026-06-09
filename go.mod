@@ -26,8 +26,8 @@ require (
 	google.golang.org/protobuf v1.36.6 // indirect
 )
 
-// CONST-051(B/C): vasic-digital/Memory lives at <repo_root>/dependencies/vasic-digital/Memory
-// per HelixCode's canonical flat-by-org layout. Replace directive is a consumer-side build
-// override only; adapter.go imports the canonical module path digital.vasic.memory/pkg/store
-// (no source-level coupling to the parent project).
-replace digital.vasic.memory => ../../vasic-digital/Memory
+// CONST-051(B/C) + CONST-052: vasic-digital/Memory lives at <repo_root>/submodules/memory
+// per HelixCode's canonical flat lowercase_snake_case layout (sibling dir ../memory).
+// Replace directive is a consumer-side build override only; adapter.go imports the canonical
+// module path digital.vasic.memory/pkg/store (no source-level coupling to the parent project).
+replace digital.vasic.memory => ../memory
