@@ -1,0 +1,10 @@
+# helix-deps.yaml — helix_memory Submodule-Dependency-Manifest (HelixConstitution §11.4.31)
+# Catalogue-Check (§11.4.74): inspected go.mod; own-org deps: vasic-digital/Memory.
+# Evidence: go.mod requires `digital.vasic.memory` + `replace digital.vasic.memory => ../memory`.
+schema_version: 1
+deps:
+  - {name: Memory, ssh_url: git@github.com:vasic-digital/Memory.git, ref: main, why: "go.mod requires module digital.vasic.memory (adapter.go imports digital.vasic.memory/pkg/store); resolved via replace => ../memory", layout: flat}
+transitive_handling:
+  recursive: true
+  conflict_resolution: operator-required
+language_specific_subtree: false
